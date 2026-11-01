@@ -1,0 +1,26 @@
+[Unit]
+Description=Yangyu photography portfolio
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=yangyu
+Group=yangyu
+WorkingDirectory=/opt/yangyu/current
+EnvironmentFile=/etc/yangyu.env
+Environment=DATA_DIRECTORY=/var/lib/yangyu
+ExecStart=/opt/yangyu-runtime/node/bin/node app/server.mjs
+Restart=on-failure
+RestartSec=5
+StateDirectory=yangyu
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/yangyu
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

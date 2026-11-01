@@ -1,0 +1,14 @@
+{
+    default_sni 203.0.113.10
+}
+
+203.0.113.10 {
+    tls {
+        issuer acme {
+            dir https://acme-v02.api.letsencrypt.org/directory
+            profile shortlived
+        }
+    }
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8080
+}

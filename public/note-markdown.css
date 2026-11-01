@@ -1,0 +1,12 @@
+.note-markdown{min-width:0;white-space:normal;overflow-wrap:anywhere;line-height:1.8}
+.note-markdown> :first-child{margin-top:0}.note-markdown> :last-child{margin-bottom:0}
+.note-markdown p{margin:.9rem 0}.note-markdown h1,.note-markdown h2,.note-markdown h3,.note-markdown h4,.note-markdown h5,.note-markdown h6{margin:1.5rem 0 .65rem;line-height:1.4;font-weight:700;letter-spacing:normal;overflow-wrap:anywhere}
+.note-markdown h1{font-size:1.7em}.note-markdown h2{font-size:1.4em}.note-markdown h3{font-size:1.2em}.note-markdown h4,.note-markdown h5,.note-markdown h6{font-size:1em}
+.note-markdown ul,.note-markdown ol{margin:.9rem 0;padding-inline-start:1.6rem}.note-markdown li{margin:.3rem 0}.note-markdown li>p{margin:.4rem 0}.note-markdown li>ul,.note-markdown li>ol{margin:.35rem 0}
+.note-markdown blockquote{margin:1.1rem 0;padding:.15rem 0 .15rem 1rem;border-inline-start:3px solid #cbd4e4;color:#536279}.note-markdown blockquote>p:first-child{margin-top:.2rem}.note-markdown blockquote>p:last-child{margin-bottom:.2rem}
+.note-markdown a{color:var(--blue,#2652a9);text-decoration:underline;text-underline-offset:.16em}.note-markdown strong{font-weight:700}.note-markdown em{font-style:italic}.note-markdown del{text-decoration:line-through}
+.note-markdown code{padding:.15em .35em;border-radius:3px;background:#e8ebf2;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.88em;white-space:break-spaces}.note-markdown pre{max-width:100%;overflow-x:auto;margin:1.1rem 0;padding:1rem;border:1px solid #dce1ec;background:#f2f4f8;white-space:pre;tab-size:4}.note-markdown pre code{padding:0;background:transparent;white-space:pre;overflow-wrap:normal}
+.note-markdown table{display:block;max-width:100%;overflow-x:auto;margin:1.1rem 0;border-collapse:collapse;line-height:1.6}.note-markdown th,.note-markdown td{min-width:5rem;padding:.55rem .75rem;border:1px solid #d5dce7;vertical-align:top}.note-markdown th{background:#eef1f7;font-weight:650}
+.note-markdown hr{margin:1.5rem 0;border:0;border-top:1px solid #d5dce7}.note-markdown img{display:block;max-width:100%;height:auto;margin:1rem 0}.note-markdown .note-markdown-image-link{font-size:.92em}
+.note-markdown li.task-list-item{list-style:none}.note-markdown input.task-list-item-checkbox{display:inline-block;width:1em;height:1em;margin:0 .5em 0 -1.5em;padding:0;vertical-align:-.1em;appearance:auto;accent-color:var(--blue,#2652a9);pointer-events:none;opacity:1}
+.note-markdown pre.note-markdown-fallback{white-space:pre-wrap;overflow-wrap:anywhere}

@@ -1,0 +1,21 @@
+import { spawnSync } from 'node:child_process';
+import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const directory = dirname(fileURLToPath(import.meta.url));
+const npmScript = process.env.npm_execpath;
+if (!npmScript) throw new Error('Run npm run release so the selected npm installation is used.');
+const timestamp = new Date().toISOString().replaceAll(':', '-').replace(/\..+$/, '');
+const output = resolve(directory, `releases/yangyu-${timestamp}`);
+await mkdir(resolve(output, 'app'), { recursive: true });
+for (const name of ['server.mjs', 'setup-admin.mjs', 'backup.mjs']) await cp(resolve(directory, 'app', name), resolve(output, 'app', name));
+await cp(resolve(directory, 'app/public'), resolve(output, 'app/public'), { recursive: true });
+for (const name of ['package.json', 'package-lock.json', '.env.example', 'cos-runtime-policy.json', 'README.md', 'ubuntu']) await cp(resolve(directory, name), resolve(output, name), { recursive: true });
+for (const name of ['docs', 'THIRD_PARTY_NOTICES.md']) await cp(resolve(directory, '../..', name), resolve(output, name), { recursive: true });
+const manifest = JSON.parse(await readFile(resolve(output, 'package.json'), 'utf8'));
+delete manifest.scripts;
+await writeFile(resolve(output, 'package.json'), JSON.stringify(manifest, null, 2) + '\n');
+const result = spawnSync(process.execPath, [npmScript, 'ci', '--omit=dev', '--include=optional', '--ignore-scripts', '--os=linux', '--cpu=x64', '--libc=glibc', '--no-audit', '--no-fund'], { cwd: output, stdio: 'inherit' });
+if (result.status !== 0) throw new Error('Production dependency installation failed.');
+console.log(output);

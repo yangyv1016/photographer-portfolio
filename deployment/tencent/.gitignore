@@ -1,0 +1,8 @@
+/node_modules/
+/app/
+/data/
+/runtime/
+/logs/
+/releases/
+/.env
+/*.zip

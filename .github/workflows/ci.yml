@@ -1,0 +1,32 @@
+name: Node.js self-hosted build and tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  self-hosted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: deployment/tencent/package-lock.json
+      - run: npm ci --prefix deployment/tencent
+      - run: npm run build --prefix deployment/tencent
+      - run: npm test --prefix deployment/tencent
+      - run: npm run release --prefix deployment/tencent
+      - name: Validate deployment shell scripts
+        run: |
+          for script in deployment/tencent/ubuntu/*.sh; do
+            bash -n "$script"
+          done

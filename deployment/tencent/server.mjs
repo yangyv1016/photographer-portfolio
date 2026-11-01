@@ -4,7 +4,7 @@ import { pipeline } from 'node:stream/promises';
 import { readFile, readdir } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
 import { root, origin } from './config.mjs';
-import { getAccountGallery, withAccount, closeDatabases } from './database.mjs';
+import { getAccountGallery, getGalleryNotes, withAccount, closeDatabases } from './database.mjs';
 import { getSession, requireSession, login, logout } from './auth.mjs';
 import { platformDatabase, getPublicAccount } from './platform-database.mjs';
 import { platformApi, accountUsage, backfillStorage } from './platform-api.mjs';
@@ -131,7 +131,7 @@ async function route(request, clientIp) {
   if (request.method === 'GET' && publicPage) {
     const account = getPublicAccount(publicPage[1]);
     if (account) {
-      const notes = getAccountGallery(account.id,account.storage_id).sqlite.prepare('SELECT id,title,content,created_at AS createdAt,updated_at AS updatedAt FROM notes ORDER BY created_at DESC,id').all();
+      const notes = getGalleryNotes(account.id,account.storage_id);
       const profile = { publicId: account.public_id, name: account.display_name, siteName: account.site_name, avatarUrl: account.avatar_key ? `/api/avatars/${account.public_id}` : '', coverUrl: account.cover_key ? `/api/covers/${account.public_id}` : '', bio: account.bio, introduction: account.introduction, region: account.region, showPhotoNames: account.show_photo_names === 1, notes };
       return withAccount(account, () => publicPage[2]
         ? renderAlbum(profile, { selectedSeriesId: url.searchParams.get('series') ?? '' })

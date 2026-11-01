@@ -15,16 +15,17 @@ export async function renderAlbum(
     console.error("Unable to render album", error);
     return new Response("照片暂时无法加载，请稍后刷新重试。", { status: 503, headers: { "Cache-Control": "no-store" } });
   }
+  if (!selectedSeriesId) selectedSeriesId = series[0]?.id ?? "";
   const selectedSeries = series.find(item => item.id === selectedSeriesId);
   if (selectedSeriesId && !selectedSeries) return new Response("所选系列不存在。", { status: 404 });
   const escapeHtml = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   const publicId = profile?.publicId ?? "";
   const portfolioUrl = publicId ? `/${encodeURIComponent(publicId)}` : "/";
   const albumUrl = workspace ? "/dashboard/album" : publicId ? `${portfolioUrl}/album` : "/album";
-  const heading = workspace ? "相册预览与排序" : selectedSeries?.name ?? "全部照片";
-  const navigation = [{ id: "", name: "全部" }, ...series].map(item => {
-    const count = photos.filter(photo => !item.id || photo.series === item.id).length;
-    const href = item.id ? `${albumUrl}?series=${encodeURIComponent(item.id)}` : albumUrl;
+  const heading = workspace ? "相册预览与排序" : selectedSeries?.name ?? "相册";
+  const navigation = series.map(item => {
+    const count = photos.filter(photo => photo.series === item.id).length;
+    const href = `${albumUrl}?series=${encodeURIComponent(item.id)}`;
     return `<a href="${escapeHtml(href)}"${item.id === selectedSeriesId ? ' aria-current="page"' : ""}>${escapeHtml(item.name)}<span>${count}</span></a>`;
   }).join("");
   const controls = workspace ? `<div class="album-arrange-controls" id="album-arrange-controls"><button type="button" id="arrange-album">调整顺序</button><button type="button" id="reverse-album-order" hidden>反转顺序</button><button type="button" id="reset-album-order" hidden>还原调整</button><button type="button" id="save-album-order" hidden>保存顺序</button><button type="button" id="cancel-album-order" hidden>取消</button></div>` : "";

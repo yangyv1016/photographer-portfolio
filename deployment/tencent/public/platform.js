@@ -4,6 +4,8 @@ import { renderNoteMarkdown } from '/note-markdown.js?v=20261101-markdown';
 const app = document.querySelector('#platform-app');
 const body = document.querySelector('#platform-body');
 const feedback = document.querySelector('#platform-feedback');
+let noteListBusy = false;
+let noteListRequest = 0;
 
 const escapeHtml = value => String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
 function bytes(value) {
@@ -272,11 +274,88 @@ async function profile() {
 }
 
 async function notes() {
+  const request = ++noteListRequest;
   const { notes: items } = await api('/api/profile/notes');
-  body.innerHTML = `<section class="panel notes-manager"><div class="panel-heading"><div><h2>我的便签</h2><p>保存后会展示在你的公开主页。</p></div><button type="button" class="button primary" id="create-note" ${items.length >= 100 ? 'disabled' : ''}>写便签</button></div><p class="field-note">${items.length} / 100 条 · 标题 1–80 字，正文 1–20000 字符，支持 Markdown；最新创建的便签排在前面。</p><div class="workspace-notes">${items.map(note => `<article class="workspace-note"><h3 class="workspace-note-title">${escapeHtml(note.title)}</h3><p class="workspace-note-content">${escapeHtml(note.content)}</p><div class="workspace-note-footer"><small>创建于 ${date(note.createdAt)}${note.updatedAt !== note.createdAt ? ` · 编辑于 ${date(note.updatedAt)}` : ''}</small><div><button type="button" class="button secondary small" data-edit-note="${escapeHtml(note.id)}">编辑</button><button type="button" class="button ghost small" data-delete-note="${escapeHtml(note.id)}">删除</button></div></div></article>`).join('') || '<p class="empty-state">还没有便签。点击「写便签」添加第一条。</p>'}</div></section>`;
+  if (request !== noteListRequest) return;
+  const groups = [
+    { isPinned: true, title: '置顶便签', description: '优先展示在公开主页' },
+    { isPinned: false, title: '其他便签', description: '按下方顺序展示，新便签默认加入本组首位' },
+  ].map(group => ({ ...group, items: items.filter(note => note.isPinned === group.isPinned) }));
+  body.innerHTML = `<section class="panel notes-manager"><div class="panel-heading"><div><h2>我的便签 <span class="notes-total">${items.length} / 100</span></h2><p>把重要内容置顶，其余随心编排。</p></div><button type="button" class="button primary" id="create-note" ${items.length >= 100 ? 'disabled' : ''}>写便签</button></div><p class="notes-order-guide">置顶便签优先展示。组内可前后移动或指定位置，调整后立即保存到公开主页。</p>${groups.filter(group => group.items.length).map(group => `<section class="notes-group" aria-labelledby="notes-${group.isPinned ? 'pinned' : 'regular'}-title"><div class="notes-group-heading"><h3 id="notes-${group.isPinned ? 'pinned' : 'regular'}-title">${group.title}<span>${group.items.length}</span></h3><p>${group.description}</p></div><ol class="workspace-notes">${group.items.map((note, index) => `<li class="workspace-note${note.isPinned ? ' is-pinned' : ''}" data-note-id="${escapeHtml(note.id)}"><div class="workspace-note-heading"><span class="workspace-note-number" aria-label="本组第 ${index + 1} 条">${String(index + 1).padStart(2, '0')}</span><div><h4 class="workspace-note-title"><button type="button" data-preview-note="${escapeHtml(note.id)}">${escapeHtml(note.title)}</button></h4><p class="workspace-note-date">${note.updatedAt !== note.createdAt ? '编辑于 ' + date(note.updatedAt) : '创建于 ' + date(note.createdAt)}</p></div>${note.isPinned ? '<span class="note-pin-badge">置顶</span>' : ''}</div><p class="workspace-note-content">${escapeHtml(note.content)}</p><div class="workspace-note-footer"><div class="workspace-note-actions"><button type="button" class="button secondary small" data-edit-note="${escapeHtml(note.id)}">编辑</button><button type="button" class="button secondary small" data-pin-note="${escapeHtml(note.id)}">${note.isPinned ? '取消置顶' : '置顶'}</button><button type="button" class="button ghost small" data-delete-note="${escapeHtml(note.id)}">删除</button></div><div class="note-order-controls"><div class="note-order-buttons" role="group" aria-label="调整${escapeHtml(note.title)}的组内顺序"><button type="button" class="button secondary small" data-note-move="first" data-id="${escapeHtml(note.id)}" ${index === 0 ? 'disabled' : ''}>最前</button><button type="button" class="button secondary small" data-note-move="previous" data-id="${escapeHtml(note.id)}" ${index === 0 ? 'disabled' : ''}>上移</button><button type="button" class="button secondary small" data-note-move="next" data-id="${escapeHtml(note.id)}" ${index === group.items.length - 1 ? 'disabled' : ''}>下移</button><button type="button" class="button secondary small" data-note-move="last" data-id="${escapeHtml(note.id)}" ${index === group.items.length - 1 ? 'disabled' : ''}>最后</button></div><form class="note-position-form" data-note-position="${escapeHtml(note.id)}"><label>移至<input type="number" name="position" min="1" max="${group.items.length}" step="1" value="${index + 1}" required aria-label="${escapeHtml(note.title)}在${group.title}中的目标位置"><span>/ ${group.items.length}</span></label><button type="submit" class="button secondary small" ${group.items.length === 1 ? 'disabled' : ''}>移动</button></form></div></div></li>`).join('')}</ol></section>`).join('') || '<div class="notes-empty"><span aria-hidden="true">✎</span><h3>还没有便签</h3><p>写下想拍的主题、拍摄计划或最近的灵感。</p><button type="button" class="button secondary" id="create-first-note">写第一条便签</button></div>'}</section>`;
+
+  async function saveArrangement(path, data, message, noteId) {
+    if (noteListBusy) return;
+    noteListBusy = true;
+    noteListRequest++;
+    const manager = body.querySelector('.notes-manager');
+    const controls = [...manager.querySelectorAll('button,input')].map(control => [control, control.disabled]);
+    manager.setAttribute('aria-busy', 'true');
+    controls.forEach(([control]) => { control.disabled = true; });
+    let saved = false;
+    try {
+      await api(path, 'POST', data);
+      saved = true;
+      await notes();
+      notify(message);
+      body.querySelector(`[data-pin-note="${CSS.escape(noteId)}"]`)?.focus();
+    } catch (error) {
+      notify(saved ? '调整已保存，但列表刷新失败，请刷新页面查看最新顺序。' : error.message, true);
+    } finally {
+      noteListBusy = false;
+      manager.removeAttribute('aria-busy');
+      controls.forEach(([control, disabled]) => { control.disabled = disabled; });
+    }
+  }
+
+  async function moveNote(id, target) {
+    const note = items.find(item => item.id === id);
+    const group = items.filter(item => item.isPinned === note.isPinned);
+    const from = group.findIndex(item => item.id === id);
+    if (!Number.isInteger(target) || target < 0 || target >= group.length) {
+      notify(`请输入 1–${group.length} 之间的组内位置。`, true);
+      return;
+    }
+    if (from === target) return;
+    const groupIds = group.map(item => item.id);
+    groupIds.splice(target, 0, groupIds.splice(from, 1)[0]);
+    let position = 0;
+    const ids = items.map(item => item.isPinned === note.isPinned ? groupIds[position++] : item.id);
+    await saveArrangement('/api/profile/notes/order', { ids }, '便签顺序已保存。', id);
+  }
 
   body.querySelector('#create-note').addEventListener('click', () => noteEditor());
+  body.querySelector('#create-first-note')?.addEventListener('click', () => noteEditor());
   body.querySelectorAll('[data-edit-note]').forEach(button => button.addEventListener('click', () => noteEditor(items.find(note => note.id === button.dataset.editNote))));
+  body.querySelectorAll('[data-pin-note]').forEach(button => button.addEventListener('click', () => {
+    const note = items.find(item => item.id === button.dataset.pinNote);
+    void saveArrangement('/api/profile/notes/pin', { id: note.id, isPinned: !note.isPinned }, note.isPinned ? '已取消置顶，便签移至其他便签首位。' : '便签已置顶，并移至置顶组首位。', note.id);
+  }));
+  body.querySelectorAll('[data-note-move]').forEach(button => button.addEventListener('click', () => {
+    const note = items.find(item => item.id === button.dataset.id);
+    const group = items.filter(item => item.isPinned === note.isPinned);
+    const index = group.findIndex(item => item.id === note.id);
+    const positions = { first: 0, previous: index - 1, next: index + 1, last: group.length - 1 };
+    void moveNote(note.id, positions[button.dataset.noteMove]);
+  }));
+  body.querySelectorAll('[data-note-position]').forEach(form => form.addEventListener('submit', event => {
+    event.preventDefault();
+    void moveNote(form.dataset.notePosition, Number(form.elements.position.value) - 1);
+  }));
+  body.querySelectorAll('[data-preview-note]').forEach(button => button.addEventListener('click', async () => {
+    const note = items.find(item => item.id === button.dataset.previewNote);
+    const element = dialog(`${dialogHeading(escapeHtml(note.title))}<div class="note-reading-content">正在加载便签…</div><div class="form-actions"><button type="button" class="button secondary" data-close>关闭</button><button type="button" class="button primary" data-edit-preview>编辑便签</button></div>`);
+    element.classList.add('note-reading-dialog');
+    element.setAttribute('aria-label', note.title);
+    element.querySelector('[data-edit-preview]').addEventListener('click', () => { element.close(); noteEditor(note); });
+    const content = element.querySelector('.note-reading-content');
+    try { await renderNoteMarkdown(note.content, content); }
+    catch {
+      if (!element.open) return;
+      content.textContent = note.content;
+      content.classList.add('note-reading-fallback');
+      notify('Markdown 排版加载失败，当前显示原文。', true);
+    }
+  }));
 
   body.querySelectorAll('[data-delete-note]').forEach(button => button.addEventListener('click', () => {
     const element = dialog(`${dialogHeading('删除便签')}<p class="muted">这条便签会从公开主页移除，删除后无法恢复。</p><div class="form-actions"><button type="button" class="button secondary" data-close>取消</button><button type="button" class="button primary" id="confirm-delete-note">确认删除</button></div>`);
@@ -496,7 +575,7 @@ pages[app.dataset.page]().catch(error=>notify(error.message,true));
 if (app.dataset.page === 'notes') {
   let refreshing = false;
   const refreshNotes = async () => {
-    if (refreshing || document.querySelector('dialog[open]')) return;
+    if (refreshing || noteListBusy || document.querySelector('dialog[open]')) return;
     refreshing = true;
     try { await notes(); }
     catch (error) { notify(error.message, true); }

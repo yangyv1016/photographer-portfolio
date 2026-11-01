@@ -44,7 +44,8 @@ function openGallery(accountId, storageId, create) {
   sqlite.exec(`CREATE TABLE IF NOT EXISTS object_sizes (photo_id TEXT PRIMARY KEY, size INTEGER NOT NULL CHECK (size >= 0));
   CREATE TRIGGER IF NOT EXISTS remove_object_size AFTER DELETE ON photos BEGIN DELETE FROM object_sizes WHERE photo_id = OLD.id; END;`);
   sqlite.exec(`CREATE TABLE IF NOT EXISTS notes (
-    id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+    is_pinned INTEGER NOT NULL DEFAULT 0 CHECK (is_pinned IN (0,1)), sort_order INTEGER NOT NULL DEFAULT 0
   );`);
   if (!sqlite.prepare('PRAGMA table_info(notes)').all().some(column=>column.name === 'title')) {
     sqlite.exec('BEGIN IMMEDIATE');
@@ -54,6 +55,19 @@ function openGallery(accountId, storageId, create) {
       for (const note of sqlite.prepare('SELECT id,content FROM notes').all()) {
         const title = note.content.split(/\r\n|\r|\n/,1)[0].trim().slice(0,80).trim();
         update.run(title,note.id);
+      }
+      sqlite.exec('COMMIT');
+    } catch (error) { sqlite.exec('ROLLBACK'); throw error; }
+  }
+  const noteColumns = new Set(sqlite.prepare('PRAGMA table_info(notes)').all().map(column=>column.name));
+  if (!noteColumns.has('is_pinned') || !noteColumns.has('sort_order')) {
+    sqlite.exec('BEGIN IMMEDIATE');
+    try {
+      if (!noteColumns.has('is_pinned')) sqlite.exec('ALTER TABLE notes ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0 CHECK (is_pinned IN (0,1))');
+      if (!noteColumns.has('sort_order')) {
+        sqlite.exec('ALTER TABLE notes ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0');
+        const update = sqlite.prepare('UPDATE notes SET sort_order=? WHERE id=?');
+        for (const [index,note] of sqlite.prepare('SELECT id FROM notes ORDER BY created_at DESC,id').all().entries()) update.run(index,note.id);
       }
       sqlite.exec('COMMIT');
     } catch (error) { sqlite.exec('ROLLBACK'); throw error; }
@@ -105,6 +119,11 @@ export function getAccountGallery(accountId, storageId) {
   const key=accountId === 1 ? 'legacy-owner' : storageId;
   if (!databases.has(key)) databases.set(key, openGallery(accountId,key,false));
   return databases.get(key);
+}
+export function getGalleryNotes(accountId, storageId) {
+  const sqlite = getAccountGallery(accountId,storageId).sqlite;
+  return sqlite.prepare('SELECT id,title,content,created_at AS createdAt,updated_at AS updatedAt,is_pinned AS isPinned,sort_order AS sortOrder FROM notes ORDER BY is_pinned DESC,sort_order,created_at DESC,id')
+    .all().map(note=>({ ...note, isPinned: note.isPinned === 1 }));
 }
 export function createAccountGallery(accountId, storageId) { databases.set(storageId,openGallery(accountId,storageId,true)); }
 export function getCurrentAccount() { return accountContext.getStore(); }

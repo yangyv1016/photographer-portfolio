@@ -5,7 +5,7 @@ export function escapeHtml(value) {
 }
 
 function documentPage(title, body, script = false) {
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} · 摄影师作品展示</title><link rel="stylesheet" href="/platform.css?v=20261101-markdown"><link rel="stylesheet" href="/note-markdown.css?v=20261101-markdown">${script ? '<script type="module" src="/platform.js?v=20261101-markdown"></script>' : ''}</head><body>${body}</body></html>`;
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} · 摄影师作品展示</title><link rel="stylesheet" href="/platform.css?v=20261102-notes-order"><link rel="stylesheet" href="/note-markdown.css?v=20261101-markdown">${script ? '<script type="module" src="/platform.js?v=20261102-notes-order"></script>' : ''}</head><body>${body}</body></html>`;
 }
 
 export function authPage(mode, error = '') {
@@ -33,7 +33,7 @@ export function workspacePage(account, active) {
 }
 
 export function photoWorkspace(account) {
-  return adminHtml.replace('</head>','<link rel="stylesheet" href="/platform.css?v=20261101-markdown"></head>')
+  return adminHtml.replace('</head>','<link rel="stylesheet" href="/platform.css?v=20261102-notes-order"></head>')
     .replace('<body>',`<body class="photo-workspace"><div class="workspace-layout">${sidebar(account,'photos')}<div class="photo-workspace-content">`)
     .replace('</body>','</div></div></body>')
     .replace('href="/">查看作品集</a>',`href="/${escapeHtml(account.public_id)}">查看我的主页 ↗</a>`)

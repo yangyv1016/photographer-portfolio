@@ -12,8 +12,8 @@ export function mountPhotoWall(wall, photos, openPhoto, { showPhotoNames = false
     album.href = albumHref;
     album.target = '_blank';
     album.rel = 'noopener noreferrer';
-    album.setAttribute('aria-label', '在新标签页查看全部照片');
-    album.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.4"/><rect x="14" y="4" width="6" height="6" rx="1.4"/><rect x="4" y="14" width="6" height="6" rx="1.4"/><rect x="14" y="14" width="6" height="6" rx="1.4"/></svg><span>全部</span>';
+    album.setAttribute('aria-label', '在新标签页查看此系列相册');
+    album.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.4"/><rect x="14" y="4" width="6" height="6" rx="1.4"/><rect x="4" y="14" width="6" height="6" rx="1.4"/><rect x="14" y="14" width="6" height="6" rx="1.4"/></svg><span>相册</span>';
     wall.querySelector('.wall-controls').append(album);
   }
   let paused = reducedMotion.matches;
@@ -34,7 +34,7 @@ export function mountPhotoWall(wall, photos, openPhoto, { showPhotoNames = false
     if (!photos.length) {
       const empty = document.createElement('p');
       empty.className = 'wall-empty';
-      empty.textContent = albumHref ? '照片墙暂无照片，可在「全部」中查看相册。' : '这个系列的照片还在整理中。';
+      empty.textContent = albumHref ? '照片墙暂无照片，可在「相册」中查看该系列。' : '这个系列的照片还在整理中。';
       viewport.append(empty);
       return;
     }

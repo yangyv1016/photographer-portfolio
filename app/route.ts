@@ -11,7 +11,7 @@ function escapeHtml(value: string) {
 export type PortfolioProfile = {
   publicId?: string; name: string; siteName: string; avatarUrl: string; coverUrl: string; bio: string;
   introduction: string; region: string; showPhotoNames: boolean;
-  notes: { id: string; title: string; content: string; createdAt: string; updatedAt: string }[];
+  notes: { id: string; title: string; content: string; createdAt: string; updatedAt: string; isPinned: boolean; sortOrder: number }[];
 };
 
 export async function renderPortfolio(profile?: PortfolioProfile) {
@@ -48,7 +48,7 @@ export async function renderPortfolio(profile?: PortfolioProfile) {
     : `<div class="hero-heading"><div><p class="eyebrow">摄影作品集 / PHOTO JOURNAL</p><h1 id="site-title">旸隅<span class="title-dot">.</span></h1></div></div>${seriesHero}<div class="hero-foot"><span>现场的瞬间，角色的另一面。</span><a href="#collections">浏览作品 <span aria-hidden="true">＋</span></a></div>`;
   const notes = profile?.notes ?? [];
   const data = JSON.stringify({ ...gallery, publicId: profile?.publicId ?? "", showPhotoNames: profile?.showPhotoNames ?? false, notes }).replace(/</g, "\\u003c");
-  const notebook = notes.length ? `<section class="notebook collection" id="notebook" aria-labelledby="notebook-title"><div class="collection-heading"><div class="collection-title"><h2 id="notebook-title">便签本<span>NOTES</span></h2></div><button type="button" class="notebook-toggle" aria-pressed="false" hidden>暂停滚动</button></div><div class="notebook-viewport" tabindex="0" role="region" aria-label="便签，可横向浏览"><div class="notebook-track"><div class="notebook-group">${notes.map((note, index) => `<button type="button" class="notebook-card" data-note-id="${escapeHtml(note.id)}"><span class="notebook-number" aria-hidden="true">${String(index + 1).padStart(2, "0")}</span><span class="notebook-card-title">${escapeHtml(note.title)}</span><span class="notebook-open">打开查看具体内容 <span aria-hidden="true">＋</span></span></button>`).join("")}</div></div></div></section>` : "";
+  const notebook = notes.length ? `<section class="notebook collection" id="notebook" aria-labelledby="notebook-title"><div class="collection-heading"><div class="collection-title"><h2 id="notebook-title">便签本<span>NOTES</span></h2></div><button type="button" class="notebook-toggle" aria-pressed="false" hidden>暂停滚动</button></div><div class="notebook-viewport" tabindex="0" role="region" aria-label="便签，可横向浏览"><div class="notebook-track"><div class="notebook-group">${notes.map((note, index) => `<button type="button" class="notebook-card${note.isPinned ? ' is-pinned' : ''}" data-note-id="${escapeHtml(note.id)}"><span class="notebook-card-meta"><span class="notebook-number" aria-hidden="true">${String(index + 1).padStart(2, "0")}</span>${note.isPinned ? '<span class="notebook-pin">置顶</span>' : ''}</span><span class="notebook-card-title">${escapeHtml(note.title)}</span><span class="notebook-open">打开查看具体内容 <span aria-hidden="true">＋</span></span></button>`).join("")}</div></div></div></section>` : "";
   const html = portfolioHtml.replaceAll("旸隅", escapeHtml(profile?.siteName ?? "旸隅"))
     .replace('<section class="hero"', `<section class="hero${profile ? ' profile-hero' : ''}"`)
     .replace("<!--portfolio-hero-->", hero)

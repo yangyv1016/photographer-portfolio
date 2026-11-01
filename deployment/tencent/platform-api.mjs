@@ -3,7 +3,7 @@ import { readFile, statfs } from 'node:fs/promises';
 import { freemem, totalmem, uptime, networkInterfaces } from 'node:os';
 import { z } from 'zod';
 import { platformDatabase, publicAccount, defaultQuotaBytes } from './platform-database.mjs';
-import { getAccountGallery } from './database.mjs';
+import { getAccountGallery, getGalleryNotes } from './database.mjs';
 import { cos, bucketParameters } from './storage.mjs';
 import { dataDirectory } from './config.mjs';
 import { verifyPassword, hashPassword, reservedIds } from './auth.mjs';
@@ -53,9 +53,47 @@ export async function backfillStorage() {
 export async function platformApi(request, account) {
   const path = new URL(request.url).pathname;
   if (path === '/api/session') return Response.json({ account: publicAccount(account), usage: accountUsage(account) });
+  if (path === '/api/profile/notes/pin' || path === '/api/profile/notes/order') {
+    if (request.method !== 'POST') return Response.json({ error: '不支持此操作。' }, { status: 405, headers: { Allow: 'POST' } });
+    const pinning = path === '/api/profile/notes/pin';
+    const schema = pinning ? z.object({ id: z.string().uuid(), isPinned: z.boolean() }) : z.object({ ids: z.array(z.string().uuid()).max(100) });
+    const parsed = schema.safeParse(await request.json());
+    if (!parsed.success || (!pinning && new Set(parsed.data.ids).size !== parsed.data.ids.length)) return Response.json({ error: '便签排序无效，请刷新后重试。' }, { status: 400 });
+    const sqlite = getAccountGallery(account.id,account.storage_id).sqlite;
+    sqlite.exec('BEGIN IMMEDIATE');
+    try {
+      if (pinning) {
+        const note = sqlite.prepare('SELECT is_pinned AS isPinned FROM notes WHERE id=?').get(parsed.data.id);
+        if (!note) { sqlite.exec('ROLLBACK'); return Response.json({ error: '便签不存在。' }, { status: 404 }); }
+        if (note.isPinned !== Number(parsed.data.isPinned)) {
+          sqlite.prepare('UPDATE notes SET is_pinned=?,sort_order=(SELECT COALESCE(MIN(sort_order),0)-1 FROM notes WHERE is_pinned=?) WHERE id=?')
+            .run(Number(parsed.data.isPinned),Number(parsed.data.isPinned),parsed.data.id);
+        }
+      } else {
+        const current = sqlite.prepare('SELECT id,is_pinned AS isPinned FROM notes').all();
+        const currentNotes = new Map(current.map(note=>[note.id,note]));
+        if (parsed.data.ids.length !== currentNotes.size || parsed.data.ids.some(id=>!currentNotes.has(id))) {
+          sqlite.exec('ROLLBACK');
+          return Response.json({ error: '便签列表已变化，请刷新后再调整顺序。' }, { status: 409 });
+        }
+        let unpinned = false;
+        for (const id of parsed.data.ids) {
+          if (!currentNotes.get(id).isPinned) unpinned = true;
+          else if (unpinned) {
+            sqlite.exec('ROLLBACK');
+            return Response.json({ error: '置顶便签应排在前面，请刷新后再调整组内顺序。' }, { status: 409 });
+          }
+        }
+        const update = sqlite.prepare('UPDATE notes SET sort_order=? WHERE id=?');
+        for (const [index,id] of parsed.data.ids.entries()) update.run(index,id);
+      }
+      sqlite.exec('COMMIT');
+    } catch (error) { sqlite.exec('ROLLBACK'); throw error; }
+    return Response.json({ saved: true });
+  }
   if (path === '/api/profile/notes') {
     const sqlite = getAccountGallery(account.id,account.storage_id).sqlite;
-    if (request.method === 'GET') return Response.json({ notes: sqlite.prepare('SELECT id,title,content,created_at AS createdAt,updated_at AS updatedAt FROM notes ORDER BY created_at DESC,id').all() });
+    if (request.method === 'GET') return Response.json({ notes: getGalleryNotes(account.id,account.storage_id) });
     if (!['POST','PATCH','DELETE'].includes(request.method)) return Response.json({ error: '不支持此操作。' }, { status: 405, headers: { Allow: 'GET, POST, PATCH, DELETE' } });
     const schema = request.method === 'POST' ? z.object({ title: noteTitleSchema, content: noteContentSchema })
       : request.method === 'PATCH' ? z.object({ id: z.string().uuid(), title: noteTitleSchema, content: noteContentSchema }) : z.object({ id: z.string().uuid() });
@@ -64,7 +102,9 @@ export async function platformApi(request, account) {
     if (request.method === 'POST') {
       const note = { id: randomUUID(), title: parsed.data.title, content: parsed.data.content, createdAt: new Date().toISOString() };
       note.updatedAt = note.createdAt;
-      const result = sqlite.prepare('INSERT INTO notes (id,title,content,created_at,updated_at) SELECT ?,?,?,?,? WHERE (SELECT COUNT(*) FROM notes)<100').run(note.id,note.title,note.content,note.createdAt,note.updatedAt);
+      note.isPinned = false;
+      note.sortOrder = sqlite.prepare('SELECT COALESCE(MIN(sort_order),0)-1 AS position FROM notes WHERE is_pinned=0').get().position;
+      const result = sqlite.prepare('INSERT INTO notes (id,title,content,created_at,updated_at,sort_order) SELECT ?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM notes)<100').run(note.id,note.title,note.content,note.createdAt,note.updatedAt,note.sortOrder);
       if (result.changes === 0) return Response.json({ error: '最多保存 100 条便签，请先删除不需要的内容。' }, { status: 409 });
       return Response.json({ note }, { status: 201 });
     }

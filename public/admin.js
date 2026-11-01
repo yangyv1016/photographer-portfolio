@@ -173,7 +173,7 @@ function renderPhotos() {
     const card = document.createElement('tr');
     card.className = 'admin-photo';
     card.dataset.id = photo.id;
-    card.innerHTML = '<td class="photo-selection"><input type="checkbox"></td><td class="admin-photo-image"><button type="button" data-action="preview"><img loading="lazy"></button></td><td class="photo-details"><h3 class="photo-title"></h3><p class="photo-alt"></p><span class="photo-badge"></span><span class="wall-hidden-badge"></span></td><td class="photo-series"></td><td class="photo-position"></td><td class="photo-actions"><button type="button" data-action="download">下载原图</button><button type="button" data-action="edit">编辑</button><button type="button" data-action="cover">设为封面</button><button type="button" data-action="previous">移前</button><button type="button" data-action="next">移后</button><button type="button" data-action="delete">删除</button></td>';
+    card.innerHTML = '<td class="photo-selection"><input type="checkbox"></td><td class="admin-photo-image"><button type="button" data-action="preview"><img loading="lazy"></button></td><td class="photo-details"><h3 class="photo-title"></h3><p class="photo-alt"></p><span class="photo-badge"></span><span class="wall-hidden-badge"></span></td><td class="photo-series"></td><td class="photo-position"></td><td class="photo-actions"><button type="button" data-action="download">下载原图</button><button type="button" data-action="edit">编辑</button><button type="button" data-action="previous">移前</button><button type="button" data-action="next">移后</button><button type="button" data-action="delete">删除</button></td>';
     const checkbox = card.querySelector('input');
     checkbox.disabled = busy;
     checkbox.setAttribute('aria-label', `选择照片 ${photo.title}`);
@@ -199,7 +199,6 @@ function renderPhotos() {
     card.querySelectorAll('button').forEach(button => { button.disabled = busy; });
     card.querySelector('[data-action="previous"]').disabled = busy || index === 0;
     card.querySelector('[data-action="next"]').disabled = busy || index === seriesPhotos.length - 1;
-    card.querySelector('[data-action="cover"]').disabled = busy || index === 0;
     grid.append(card);
   });
   renderSelection();
@@ -611,11 +610,8 @@ grid.addEventListener('click', async event => {
   }
   const seriesPhotos = photos.filter(item => item.series === photo.series);
   const index = seriesPhotos.findIndex(item => item.id === id);
-  if (button.dataset.action === 'cover') seriesPhotos.unshift(...seriesPhotos.splice(index, 1));
-  else {
-    const destination = index + (button.dataset.action === 'previous' ? -1 : 1);
-    [seriesPhotos[index], seriesPhotos[destination]] = [seriesPhotos[destination], seriesPhotos[index]];
-  }
+  const destination = index + (button.dataset.action === 'previous' ? -1 : 1);
+  [seriesPhotos[index], seriesPhotos[destination]] = [seriesPhotos[destination], seriesPhotos[index]];
   setBusy(true);
   try {
     await requestJson('/api/admin/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ series: photo.series, ids: seriesPhotos.map(item => item.id) }) });

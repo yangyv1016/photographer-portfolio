@@ -1,4 +1,4 @@
-import { mountPhotoWall } from './photo-wall.js?v=20261101-album';
+import { mountPhotoWall } from './photo-wall.js?v=20261102-series-order';
 import { mountNotebook } from './notebook.js?v=20261101-markdown';
 import { setProgressiveImage } from './progressive-image.js?v=20261101-progressive';
 import { mountPhotoViewer } from './photo-viewer.js?v=20261101-album';
@@ -25,7 +25,7 @@ for (const series of galleryData.series) {
   const gallery = document.getElementById(`${series.id}-gallery`);
   document.getElementById(`${series.id}-count`).textContent = `${String(seriesPhotos.length).padStart(2, '0')} 张影像`;
   mountPhotoWall(gallery, seriesPhotos.filter(photo => photo.showOnWall), openPhoto, {
-    showPhotoNames, albumHref: galleryData.publicId ? `/${encodeURIComponent(galleryData.publicId)}/album` : '/album',
+    showPhotoNames, albumHref: `${galleryData.publicId ? `/${encodeURIComponent(galleryData.publicId)}/album` : '/album'}?series=${encodeURIComponent(series.id)}`,
   });
 }
 

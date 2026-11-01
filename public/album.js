@@ -5,8 +5,8 @@ const grid = document.querySelector('#album-grid');
 const feedback = document.querySelector('#album-feedback');
 const sortHelp = document.querySelector('#album-sort-help');
 const openPhotos = mountPhotoViewer(albumData);
-let photos = albumData.photos.filter(photo => !albumData.selectedSeriesId || photo.series === albumData.selectedSeriesId)
-  .sort((left, right) => left.albumOrder - right.albumOrder);
+let photos = albumData.photos.filter(photo => photo.series === albumData.selectedSeriesId)
+  .sort((left, right) => left.sortOrder - right.sortOrder);
 let savedOrder = photos.slice();
 const cards = new Map();
 let editing = false;
@@ -124,7 +124,7 @@ if (albumData.canArrange) {
     resetButton.disabled = blocked || !dirty;
     saveButton.textContent = saving ? '正在保存…' : '保存顺序';
     sortHelp.hidden = !editing;
-    sortHelp.textContent = '点击照片后，可用底部工具前移、后移、置顶、置底或指定位置；也可拖动手柄、使用方向键调整。点击「保存顺序」后生效。';
+    sortHelp.textContent = '可拖动手柄、使用方向键，或选中照片后前移、后移、置顶、置底、指定位置。保存后同步此系列的作品和照片墙顺序，第一张作为系列封面。';
     selectionLabel.textContent = selectedIndex < 0 ? '点击一张照片，选择要移动的内容' : `已选第 ${selectedIndex + 1} / ${photos.length} 张照片`;
     positionInput.max = String(photos.length);
     positionInput.value = selectedIndex < 0 ? '' : String(selectedIndex + 1);
@@ -323,8 +323,7 @@ if (albumData.canArrange) {
     saving = true;
     updateControls();
     try {
-      const payload = { ids: photos.map(photo => photo.id) };
-      if (albumData.selectedSeriesId) payload.series = albumData.selectedSeriesId;
+      const payload = { series: albumData.selectedSeriesId, ids: photos.map(photo => photo.id) };
       let response;
       try { response = await fetch('/api/admin/album-order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); }
       catch { throw new Error('连接失败，请检查网络后重试。'); }
@@ -334,7 +333,7 @@ if (albumData.canArrange) {
       if (!response.ok) throw new Error(result.error);
       savedOrder = photos.slice();
       editing = false;
-      announce('相册顺序已保存。');
+      announce('作品顺序已保存，照片墙和系列封面已同步。');
     } catch (error) { announce(error.message, true); }
     finally { saving = false; updateControls(); }
   });

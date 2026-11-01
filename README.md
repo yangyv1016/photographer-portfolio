@@ -53,4 +53,4 @@ npm start
 
 ## 许可与第三方内容
 
-当前未添加项目统一代码许可证；第三方许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。样例照片及第三方组件各自遵循原许可；公开代码不改变用户上传作品的权利归属。
+项目代码采用 [MIT 许可证](LICENSE)。样例照片及第三方组件各自遵循原许可，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)；MIT 许可证不重新授权这些第三方内容，也不改变用户上传作品的权利归属。

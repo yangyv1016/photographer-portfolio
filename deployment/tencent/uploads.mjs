@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { checkAdmin } from './auth.mjs';
 import { getDatabase } from './database.mjs';
-import { cos, bucketParameters, env, signedUrl } from './storage.mjs';
+import { env, readObjectPrefix, signedUrl } from './storage.mjs';
+import { storageBackend } from './config.mjs';
 import { PATCH as saveUpload } from '../../app/api/admin/uploads/route.ts';
 import { POST as createUpload } from '../../app/api/admin/uploads/route.ts';
 import { getCurrentAccount, getSqlite } from './database.mjs';
@@ -23,6 +24,7 @@ export async function startUpload(request) {
 export async function uploadPart(request) {
   const denied = await checkAdmin(request);
   if (denied) return denied;
+  if (request.method === 'GET' && storageBackend === 'local') return Response.json({ error: '本地存储使用本站分块上传接口，不提供签名上传链接。' }, { status: 405, headers: { Allow: 'PUT', 'Cache-Control': 'private, no-store' } });
   const query = new URL(request.url).searchParams;
   const parsed = z.object({ id: z.string().uuid(), part: z.coerce.number().int().min(1).max(10000) }).safeParse({ id: query.get('id'), part: query.get('part') });
   if (!parsed.success) return Response.json({ error: '分块信息无效。' }, { status: 400 });
@@ -36,9 +38,8 @@ export async function uploadPart(request) {
   if (request.method === 'GET') return Response.json({ url: await signedUrl(upload.imageKey, { Method: 'PUT', Headers: { 'content-length': String(expectedSize) }, Query: { uploadId: upload.uploadId, partNumber: String(parsed.data.part) } }) }, { headers: { 'Cache-Control': 'private, no-store' } });
   const bytes = Buffer.from(await request.arrayBuffer());
   if (bytes.length !== expectedSize) return Response.json({ error: '照片分块大小与上传信息不一致，请重试。' }, { status: 400 });
-  const result = await cos.multipartUpload({ ...bucketParameters, Key: upload.imageKey, UploadId: upload.uploadId, PartNumber: parsed.data.part, Body: bytes });
-  if (!result.ETag) throw new Error('The uploaded part has no ETag.');
-  return Response.json({ etag: result.ETag }, { headers: { 'Cache-Control': 'private, no-store' } });
+  const part = await env.BUCKET.resumeMultipartUpload(upload.imageKey, upload.uploadId).uploadPart(parsed.data.part, bytes);
+  return Response.json({ etag: part.etag }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
 
 export async function finishUpload(request) {
@@ -54,7 +55,7 @@ export async function finishUpload(request) {
   if (quotaDenied) return quotaDenied;
   const object = await env.BUCKET.head(upload.imageKey) ?? await env.BUCKET.resumeMultipartUpload(upload.imageKey, upload.uploadId).complete(parts);
   if (object.size !== upload.size) return Response.json({ error: '照片大小与上传信息不一致，请取消后重传。' }, { status: 400 });
-  const { Body: bytes } = await cos.getObject({ ...bucketParameters, Key: upload.imageKey, Range: `bytes=0-${Math.min(15, upload.size - 1)}` });
+  const bytes = await readObjectPrefix(upload.imageKey, Math.min(16, upload.size));
   const valid = upload.contentType === 'image/jpeg' ? bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
     : upload.contentType === 'image/png' ? [137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value)
     : upload.contentType === 'image/webp' ? bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WEBP'

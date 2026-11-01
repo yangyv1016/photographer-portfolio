@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { dataDirectory } from './config.mjs';
-import { bucketParameters, objectResponse } from './storage.mjs';
+import { storageIdentity, objectResponse } from './storage.mjs';
 
 const directory = resolve(dataDirectory,'previews');
 const maximumCacheBytes = 128 * 1024 ** 2;
@@ -42,8 +42,8 @@ async function pruneCache() {
 export async function previewResponse(key) {
   if (!ready) ready = mkdir(directory,{recursive:true,mode:0o700}).then(pruneCache);
   await ready;
-  // Object keys change on replacement; bucket/region also isolate caches after a storage switch.
-  const id = createHash('sha256').update(JSON.stringify([bucketParameters.Bucket,bucketParameters.Region,key,'webp-1280-q80-v2'])).digest('hex');
+  // Object keys change on replacement; each backend and storage location has its own cache scope.
+  const id = createHash('sha256').update(JSON.stringify([...storageIdentity,key,'webp-1280-q80-v2'])).digest('hex');
   const filename = resolve(directory,id+'.webp');
   let bytes;
   try { bytes = await readFile(filename); }

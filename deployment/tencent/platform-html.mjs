@@ -5,7 +5,7 @@ export function escapeHtml(value) {
 }
 
 function documentPage(title, body, script = false) {
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} · 摄影师作品展示</title><link rel="stylesheet" href="/platform.css?v=20261102-notes-compact"><link rel="stylesheet" href="/note-markdown.css?v=20261101-markdown">${script ? '<script type="module" src="/platform.js?v=20261102-notes-order"></script>' : ''}</head><body>${body}</body></html>`;
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} · 摄影师作品展示</title><link rel="stylesheet" href="/platform.css?v=20261102-notes-compact"><link rel="stylesheet" href="/note-markdown.css?v=20261101-markdown">${script ? '<script type="module" src="/platform.js?v=20261102-storage-modes"></script>' : ''}</head><body>${body}</body></html>`;
 }
 
 export function authPage(mode, error = '') {

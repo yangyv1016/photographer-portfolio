@@ -3,7 +3,7 @@ set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo 'Run as root.' >&2; exit 1; }
 package_directory=$(cd "$(dirname "$0")/.." && pwd)
 [[ -x /opt/yangyu-runtime/node/bin/node ]] || { echo 'Run ubuntu/bootstrap.sh first.' >&2; exit 1; }
-[[ -f "$package_directory/app/server.mjs" && -d "$package_directory/node_modules/cos-nodejs-sdk-v5" ]] || { echo 'Use the built production release package.' >&2; exit 1; }
+[[ -f "$package_directory/app/server.mjs" && -d "$package_directory/node_modules/sharp" ]] || { echo 'Use the built production release package.' >&2; exit 1; }
 [[ -f /etc/yangyu.env ]] || { echo 'Create /etc/yangyu.env from .env.example first (mode 600, owned by root).' >&2; exit 1; }
 chmod 600 /etc/yangyu.env
 chown root:root /etc/yangyu.env

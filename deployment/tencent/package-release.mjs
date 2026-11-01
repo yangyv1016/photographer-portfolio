@@ -11,7 +11,7 @@ const output = resolve(directory, `releases/yangyu-${timestamp}`);
 await mkdir(resolve(output, 'app'), { recursive: true });
 for (const name of ['server.mjs', 'setup-admin.mjs', 'backup.mjs']) await cp(resolve(directory, 'app', name), resolve(output, 'app', name));
 await cp(resolve(directory, 'app/public'), resolve(output, 'app/public'), { recursive: true });
-for (const name of ['package.json', 'package-lock.json', '.env.example', 'cos-runtime-policy.json', 'README.md', 'ubuntu']) await cp(resolve(directory, name), resolve(output, name), { recursive: true });
+for (const name of ['package.json', 'package-lock.json', '.env.example', '.env.local.example', '.env.cos.example', 'cos-runtime-policy.json', 'README.md', 'ubuntu']) await cp(resolve(directory, name), resolve(output, name), { recursive: true });
 for (const name of ['docs', 'LICENSE', 'THIRD_PARTY_NOTICES.md']) await cp(resolve(directory, '../..', name), resolve(output, name), { recursive: true });
 const manifest = JSON.parse(await readFile(resolve(output, 'package.json'), 'utf8'));
 delete manifest.scripts;

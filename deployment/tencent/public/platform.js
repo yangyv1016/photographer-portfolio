@@ -61,11 +61,11 @@ async function overview() {
   body.innerHTML = `<div class="stat-grid">
     <article class="stat-card"><span class="stat-label">摄影师账户</span><strong>${data.accountCount}</strong><small>${data.activeAccountCount} 个已启用</small></article>
     <article class="stat-card"><span class="stat-label">已存照片</span><strong>${data.photoCount}</strong><small>含回收站账户保留的照片</small></article>
-    <article class="stat-card"><span class="stat-label">照片与资料图片</span><strong>${bytes(data.storageBytes)}</strong><small>${data.storageComplete ? '已核对 COS 对象大小' : '历史照片容量核对中'}</small></article>
+    <article class="stat-card"><span class="stat-label">照片与资料图片</span><strong>${bytes(data.storageBytes)}</strong><small>${data.storageComplete ? '已核对图片文件大小' : '历史照片容量核对中'}</small></article>
     <article class="stat-card"><span class="stat-label">待完成上传</span><strong>${bytes(data.pendingBytes)}</strong><small>已为上传任务预留容量</small></article>
     </div><div class="resource-grid"><section class="panel"><div class="panel-heading"><h2>服务器资源</h2><button class="button ghost" id="refresh-overview">刷新</button></div>
     ${resource('系统内存',system.usedMemoryBytes,system.totalMemoryBytes,'Linux 使用可用内存计算，排除可回收缓存。')}
-    ${resource('服务器磁盘',system.usedDiskBytes,system.totalDiskBytes,'服务器磁盘含系统、数据库和本地备份；照片原件存储在 COS。')}
+    ${resource('服务器磁盘',system.usedDiskBytes,system.totalDiskBytes,data.storageBackend === 'local' ? '本地模式：服务器磁盘含系统、数据库、备份和照片原件。' : 'COS 模式：服务器磁盘含系统、数据库和本地备份；照片原件存储在 COS。')}
     <div class="resource-row"><div class="resource-label"><span>网站进程内存</span><span>${bytes(system.appMemoryBytes)}</span></div><p class="resource-note">服务器已运行 ${Math.floor(system.uptimeSeconds/3600)} 小时。</p></div></section>
     <section class="panel"><div class="panel-heading"><h2>网络流量</h2><span class="badge">服务器自启动累计</span></div><div class="traffic-values"><div><small>接收</small><strong>${system.network ? bytes(system.network.receivedBytes) : '当前系统不提供'}</strong></div><div><small>发送</small><strong>${system.network ? bytes(system.network.sentBytes) : '当前系统不提供'}</strong></div></div><div class="info-note">${escapeHtml(data.cloudTraffic.explanation)}</div></section></div>`;
   document.querySelector('#refresh-overview').addEventListener('click',()=>overview().catch(error=>notify(error.message,true)));

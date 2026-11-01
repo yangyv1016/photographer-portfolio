@@ -4,8 +4,8 @@ import { freemem, totalmem, uptime, networkInterfaces } from 'node:os';
 import { z } from 'zod';
 import { platformDatabase, publicAccount, defaultQuotaBytes } from './platform-database.mjs';
 import { getAccountGallery, getGalleryNotes } from './database.mjs';
-import { cos, bucketParameters } from './storage.mjs';
-import { dataDirectory } from './config.mjs';
+import { env, objectHead } from './storage.mjs';
+import { dataDirectory, storageBackend } from './config.mjs';
 import { verifyPassword, hashPassword, reservedIds } from './auth.mjs';
 import { DELETE as cancelUpload } from '../../app/api/admin/uploads/route.ts';
 
@@ -43,8 +43,9 @@ export async function backfillStorage() {
     const rows = sqlite.prepare('SELECT id,image_key FROM photos WHERE image_key IS NOT NULL AND id NOT IN (SELECT photo_id FROM object_sizes)').all();
     for (const photo of rows) {
       try {
-        const object = await cos.headObject({ ...bucketParameters, Key: photo.image_key });
-        if (sqlite.prepare('SELECT id FROM photos WHERE id=?').get(photo.id)) sqlite.prepare('INSERT OR IGNORE INTO object_sizes VALUES (?,?)').run(photo.id, Number(object.headers['content-length']));
+        const object = await objectHead(photo.image_key);
+        if (!object) throw new Error('The registered image is missing from storage.');
+        if (sqlite.prepare('SELECT id FROM photos WHERE id=?').get(photo.id)) sqlite.prepare('INSERT OR IGNORE INTO object_sizes VALUES (?,?)').run(photo.id, object.size);
       } catch { console.error('Unable to measure an existing photo.'); }
     }
   }
@@ -182,7 +183,7 @@ export async function platformApi(request, account) {
     profileImageUploads.add(account.id);
     try {
       const image = platformDatabase.prepare(`SELECT ${imageField}_key AS imageKey FROM users WHERE id=?`).get(account.id);
-      if (image.imageKey) await cos.deleteObject({ ...bucketParameters, Key: image.imageKey });
+      if (image.imageKey) await env.BUCKET.delete(image.imageKey);
       platformDatabase.prepare(`UPDATE users SET ${imageField}_key=NULL,${imageField}_size=0 WHERE id=?`).run(account.id);
       return Response.json({ saved: true });
     } finally { profileImageUploads.delete(account.id); }
@@ -203,31 +204,26 @@ export async function platformApi(request, account) {
     profileImageUploads.add(account.id);
     uploadReservations.set(account.id, (uploadReservations.get(account.id) ?? 0) + reserved);
     const key = `photos/${imageField === 'cover' ? 'covers' : imageField === 'directory_cover' ? 'directory-covers' : 'avatars'}/${account.id}/${randomUUID()}.${type === 'image/jpeg' ? 'jpg' : type.split('/')[1]}`;
-    let uploadId;
     let complete = false;
     let saved = false;
     try {
-      uploadId = (await cos.multipartInit({ ...bucketParameters, Key: key, ContentType: type })).UploadId;
-      const part = await cos.multipartUpload({ ...bucketParameters, Key: key, UploadId: uploadId, PartNumber: 1, Body: bytes });
-      await cos.multipartComplete({ ...bucketParameters, Key: key, UploadId: uploadId, Parts: [{ PartNumber: 1, ETag: part.ETag }] });
+      await env.BUCKET.put(key, bytes, { httpMetadata: { contentType: type } });
       complete = true;
       const changedQuota = checkStorageQuota(account);
       if (changedQuota) return changedQuota;
       platformDatabase.prepare(`UPDATE users SET ${imageField}_key=?,${imageField}_size=? WHERE id=?`).run(key, bytes.length, account.id);
       saved = true;
       if (image.imageKey) {
-        try { await cos.deleteObject({ ...bucketParameters, Key: image.imageKey }); }
+        try { await env.BUCKET.delete(image.imageKey); }
         catch { console.error('Unable to clean up a previous profile image.'); }
       }
       return Response.json({ saved: true });
     } finally {
       profileImageUploads.delete(account.id);
       uploadReservations.set(account.id, (uploadReservations.get(account.id) ?? 0) - reserved);
-      if (!saved && uploadId) {
-        try {
-          if (complete) await cos.deleteObject({ ...bucketParameters, Key: key });
-          else await cos.multipartAbort({ ...bucketParameters, Key: key, UploadId: uploadId });
-        } catch { console.error('Unable to clean up an unsuccessful profile image upload.'); }
+      if (!saved && complete) {
+        try { await env.BUCKET.delete(key); }
+        catch { console.error('Unable to clean up an unsuccessful profile image upload.'); }
       }
     }
   }
@@ -303,6 +299,7 @@ export async function platformApi(request, account) {
       }
     }
     return Response.json({
+      storageBackend,
       accountCount: users.filter(user=>!user.deleted_at).length,
       activeAccountCount: users.filter(user=>user.is_active && !user.deleted_at).length,
       photoCount: usage.reduce((sum,item)=>sum+item.photoCount,0),
@@ -310,7 +307,7 @@ export async function platformApi(request, account) {
       storageComplete: usage.every(item=>item.storageComplete),
       pendingBytes: usage.reduce((sum,item)=>sum+item.pendingBytes,0),
       system: { totalMemoryBytes: totalmem(), usedMemoryBytes: totalmem()-availableMemory, appMemoryBytes: process.memoryUsage().rss, totalDiskBytes: disk.blocks*disk.bsize, usedDiskBytes: (disk.blocks-disk.bfree)*disk.bsize, uptimeSeconds: uptime(), network },
-      cloudTraffic: { available: false, explanation: 'COS 与 EdgeOne 云端流量统计尚未接入。服务器网络计数不包含浏览器直传及 COS 直接下载的流量。' },
+      cloudTraffic: { available: false, explanation: storageBackend === 'local' ? '本地模式的照片由服务器磁盘提供。网卡数据表示服务器自身累计收发量，CDN 等外部服务的用量需单独核对。' : 'COS 与 EdgeOne 的云端用量尚未接入。网卡数据表示服务器自身累计收发量，不能代替云产品账单。' },
     });
   }
   return Response.json({ error: '接口或请求方式无效。' }, { status: 404 });

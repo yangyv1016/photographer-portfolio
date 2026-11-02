@@ -46,6 +46,16 @@ const markdownLicenses = await Promise.all([
   ['punycode.js', 'LICENSE-MIT.txt'], ['uc.micro', 'LICENSE.txt'],
 ].map(async ([name, filename]) => name + '\n\n' + await readFile(resolve(directory, 'node_modules', name, filename), 'utf8')));
 await writeFile(resolve(directory, 'app/public/vendor/note-markdown-vendor.LICENSE.txt'), markdownLicenses.join('\n\n'));
+await build({
+  entryPoints: [resolve(directory, 'note-image-export.mjs')],
+  outfile: resolve(directory, 'app/public/note-image-export.js'),
+  bundle: true, platform: 'browser', target: 'es2022', format: 'esm', minify: true,
+  external: ['/note-markdown.js?v=20261101-markdown'],
+  loader: { '.css': 'text' },
+  legalComments: 'linked',
+  banner: { js: '/*! html-to-image (MIT): ./vendor/note-image-export.LICENSE.txt */' },
+});
+await cp(resolve(directory, 'node_modules/html-to-image/LICENSE'), resolve(directory, 'app/public/vendor/note-image-export.LICENSE.txt'));
 const adminPath = resolve(directory, 'app/public/admin.js');
 const adminSource = await readFile(adminPath, 'utf8');
 const originalUpload = "await requestJson(`/api/admin/uploads?id=${encodeURIComponent(id)}&part=${partNumber}`, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: entry.file.slice(offset, offset + partSize) })";

@@ -24,6 +24,7 @@
 - `build/sites-vite-plugin.ts`：原 MIT 许可及 OpenAI 版权声明保存在同目录的 `sites-vite-plugin.LICENSE`。
 - `vendor/shadcn-tailwind-4.13.0.css`：原 MIT 许可及 shadcn 版权声明保存在同目录的 `shadcn-tailwind-4.13.0.LICENSE.md`。
 - Node.js 自部署版会从锁定的 npm 依赖构建 Markdown bundle，并生成完整的 `app/public/vendor/note-markdown-vendor.LICENSE.txt`。
+- 工作台便签导出使用本地打包的 `html-to-image`（MIT），完整许可随 `app/public/vendor/note-image-export.LICENSE.txt` 分发。
 - 其他 npm 依赖遵循各包随附的许可，安装后可在 `node_modules` 内查看。发布包保留生产依赖原有的许可文件。
 
 以上第三方声明应随相关素材或软件一并保留。

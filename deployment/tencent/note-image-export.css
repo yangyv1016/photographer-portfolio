@@ -1,0 +1,9 @@
+.note-image-export{box-sizing:border-box;width:960px;padding:28px;background:#f1ecdf;color:#253343;font-family:Arial,"Microsoft YaHei","PingFang SC",sans-serif;font-size:20px}
+.note-image-export *{box-sizing:border-box}
+.note-image-export .note-image-paper{min-height:480px;padding:48px;background:#fffdf5;border:1px solid #e9e3d3;border-radius:12px}
+.note-image-export .note-image-title{font-size:36px;font-weight:700;line-height:1.45;letter-spacing:0;overflow-wrap:anywhere;margin:0 0 28px;padding:0 0 28px;border-bottom:1px solid #e9e5da}
+.note-image-export .note-markdown{font-size:20px;line-height:1.8}
+.note-image-export .note-markdown pre,.note-image-export .note-markdown pre code{white-space:pre-wrap;overflow-wrap:anywhere;overflow:visible}
+.note-image-export .note-markdown table{display:table;table-layout:fixed;width:100%;max-width:100%;overflow:visible}
+.note-image-export .note-markdown th,.note-image-export .note-markdown td{min-width:0;overflow-wrap:anywhere;padding:10px}
+.note-image-export .note-markdown img{max-width:100%;max-height:1400px;width:auto;height:auto;object-fit:contain}

@@ -6,6 +6,7 @@ const body = document.querySelector('#platform-body');
 const feedback = document.querySelector('#platform-feedback');
 let noteListBusy = false;
 let noteListRequest = 0;
+let noteImageExportRetry = 0;
 
 const escapeHtml = value => String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
 function bytes(value) {
@@ -273,6 +274,26 @@ async function profile() {
   }
 }
 
+async function downloadNoteImage(button, note) {
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = '正在导出…';
+  button.setAttribute('aria-busy', 'true');
+  try {
+    let module;
+    try { module = await import('/note-image-export.js?v=20261102-note-image' + (noteImageExportRetry ? `&retry=${noteImageExportRetry}` : '')); }
+    catch { noteImageExportRetry++; throw new Error('导出组件加载失败，请重试。'); }
+    const { exportNoteImage } = module;
+    await exportNoteImage(note);
+    notify('便签图片已导出。');
+  } catch (error) { notify(error.message, true); }
+  finally {
+    button.disabled = noteListBusy && body.contains(button);
+    button.textContent = label;
+    button.removeAttribute('aria-busy');
+  }
+}
+
 async function notes() {
   const request = ++noteListRequest;
   const { notes: items } = await api('/api/profile/notes');
@@ -281,7 +302,7 @@ async function notes() {
     { isPinned: true, title: '置顶便签', description: '优先展示在公开主页' },
     { isPinned: false, title: '其他便签', description: '按下方顺序展示，新便签默认加入本组首位' },
   ].map(group => ({ ...group, items: items.filter(note => note.isPinned === group.isPinned) }));
-  body.innerHTML = `<section class="panel notes-manager"><div class="panel-heading"><div><h2>我的便签 <span class="notes-total">${items.length} / 100</span></h2><p>把重要内容置顶，其余随心编排。</p></div><button type="button" class="button primary" id="create-note" ${items.length >= 100 ? 'disabled' : ''}>写便签</button></div><p class="notes-order-guide">置顶便签优先展示。组内可前后移动或指定位置，调整后立即保存到公开主页。</p>${groups.filter(group => group.items.length).map(group => `<section class="notes-group" aria-labelledby="notes-${group.isPinned ? 'pinned' : 'regular'}-title"><div class="notes-group-heading"><h3 id="notes-${group.isPinned ? 'pinned' : 'regular'}-title">${group.title}<span>${group.items.length}</span></h3><p>${group.description}</p></div><ol class="workspace-notes">${group.items.map((note, index) => `<li class="workspace-note${note.isPinned ? ' is-pinned' : ''}" data-note-id="${escapeHtml(note.id)}"><div class="workspace-note-heading"><span class="workspace-note-number" aria-label="本组第 ${index + 1} 条">${String(index + 1).padStart(2, '0')}</span><div><h4 class="workspace-note-title"><button type="button" data-preview-note="${escapeHtml(note.id)}">${escapeHtml(note.title)}</button></h4><p class="workspace-note-date">${note.updatedAt !== note.createdAt ? '编辑于 ' + date(note.updatedAt) : '创建于 ' + date(note.createdAt)}</p></div>${note.isPinned ? '<span class="note-pin-badge">置顶</span>' : ''}</div><p class="workspace-note-content">${escapeHtml(note.content)}</p><div class="workspace-note-footer"><div class="workspace-note-actions"><button type="button" class="button secondary small" data-edit-note="${escapeHtml(note.id)}">编辑</button><button type="button" class="button secondary small" data-pin-note="${escapeHtml(note.id)}">${note.isPinned ? '取消置顶' : '置顶'}</button><button type="button" class="button ghost small" data-delete-note="${escapeHtml(note.id)}">删除</button></div><div class="note-order-controls"><div class="note-order-buttons" role="group" aria-label="调整${escapeHtml(note.title)}的组内顺序"><button type="button" class="button secondary small" data-note-move="first" data-id="${escapeHtml(note.id)}" ${index === 0 ? 'disabled' : ''}>最前</button><button type="button" class="button secondary small" data-note-move="previous" data-id="${escapeHtml(note.id)}" ${index === 0 ? 'disabled' : ''}>上移</button><button type="button" class="button secondary small" data-note-move="next" data-id="${escapeHtml(note.id)}" ${index === group.items.length - 1 ? 'disabled' : ''}>下移</button><button type="button" class="button secondary small" data-note-move="last" data-id="${escapeHtml(note.id)}" ${index === group.items.length - 1 ? 'disabled' : ''}>最后</button></div><form class="note-position-form" data-note-position="${escapeHtml(note.id)}"><label>移至<input type="number" name="position" min="1" max="${group.items.length}" step="1" value="${index + 1}" required aria-label="${escapeHtml(note.title)}在${group.title}中的目标位置"><span>/ ${group.items.length}</span></label><button type="submit" class="button secondary small" ${group.items.length === 1 ? 'disabled' : ''}>移动</button></form></div></div></li>`).join('')}</ol></section>`).join('') || '<div class="notes-empty"><span aria-hidden="true">✎</span><h3>还没有便签</h3><p>写下想拍的主题、拍摄计划或最近的灵感。</p><button type="button" class="button secondary" id="create-first-note">写第一条便签</button></div>'}</section>`;
+  body.innerHTML = `<section class="panel notes-manager"><div class="panel-heading"><div><h2>我的便签 <span class="notes-total">${items.length} / 100</span></h2><p>把重要内容置顶，其余随心编排。</p></div><button type="button" class="button primary" id="create-note" ${items.length >= 100 ? 'disabled' : ''}>写便签</button></div><p class="notes-order-guide">置顶便签优先展示。组内可前后移动或指定位置，调整后立即保存到公开主页。</p>${groups.filter(group => group.items.length).map(group => `<section class="notes-group" aria-labelledby="notes-${group.isPinned ? 'pinned' : 'regular'}-title"><div class="notes-group-heading"><h3 id="notes-${group.isPinned ? 'pinned' : 'regular'}-title">${group.title}<span>${group.items.length}</span></h3><p>${group.description}</p></div><ol class="workspace-notes">${group.items.map((note, index) => `<li class="workspace-note${note.isPinned ? ' is-pinned' : ''}" data-note-id="${escapeHtml(note.id)}"><div class="workspace-note-heading"><span class="workspace-note-number" aria-label="本组第 ${index + 1} 条">${String(index + 1).padStart(2, '0')}</span><div><h4 class="workspace-note-title"><button type="button" data-preview-note="${escapeHtml(note.id)}">${escapeHtml(note.title)}</button></h4><p class="workspace-note-date">${note.updatedAt !== note.createdAt ? '编辑于 ' + date(note.updatedAt) : '创建于 ' + date(note.createdAt)}</p></div>${note.isPinned ? '<span class="note-pin-badge">置顶</span>' : ''}</div><p class="workspace-note-content">${escapeHtml(note.content)}</p><div class="workspace-note-footer"><div class="workspace-note-actions"><button type="button" class="button secondary small" data-edit-note="${escapeHtml(note.id)}">编辑</button><button type="button" class="button secondary small" data-export-note="${escapeHtml(note.id)}">导出图片</button><button type="button" class="button secondary small" data-pin-note="${escapeHtml(note.id)}">${note.isPinned ? '取消置顶' : '置顶'}</button><button type="button" class="button ghost small" data-delete-note="${escapeHtml(note.id)}">删除</button></div><div class="note-order-controls"><div class="note-order-buttons" role="group" aria-label="调整${escapeHtml(note.title)}的组内顺序"><button type="button" class="button secondary small" data-note-move="first" data-id="${escapeHtml(note.id)}" ${index === 0 ? 'disabled' : ''}>最前</button><button type="button" class="button secondary small" data-note-move="previous" data-id="${escapeHtml(note.id)}" ${index === 0 ? 'disabled' : ''}>上移</button><button type="button" class="button secondary small" data-note-move="next" data-id="${escapeHtml(note.id)}" ${index === group.items.length - 1 ? 'disabled' : ''}>下移</button><button type="button" class="button secondary small" data-note-move="last" data-id="${escapeHtml(note.id)}" ${index === group.items.length - 1 ? 'disabled' : ''}>最后</button></div><form class="note-position-form" data-note-position="${escapeHtml(note.id)}"><label>移至<input type="number" name="position" min="1" max="${group.items.length}" step="1" value="${index + 1}" required aria-label="${escapeHtml(note.title)}在${group.title}中的目标位置"><span>/ ${group.items.length}</span></label><button type="submit" class="button secondary small" ${group.items.length === 1 ? 'disabled' : ''}>移动</button></form></div></div></li>`).join('')}</ol></section>`).join('') || '<div class="notes-empty"><span aria-hidden="true">✎</span><h3>还没有便签</h3><p>写下想拍的主题、拍摄计划或最近的灵感。</p><button type="button" class="button secondary" id="create-first-note">写第一条便签</button></div>'}</section>`;
 
   async function saveArrangement(path, data, message, noteId) {
     if (noteListBusy) return;
@@ -303,7 +324,7 @@ async function notes() {
     } finally {
       noteListBusy = false;
       manager.removeAttribute('aria-busy');
-      controls.forEach(([control, disabled]) => { control.disabled = disabled; });
+      controls.forEach(([control, disabled]) => { control.disabled = control.hasAttribute('data-export-note') ? control.getAttribute('aria-busy') === 'true' : disabled; });
     }
   }
 
@@ -326,6 +347,9 @@ async function notes() {
   body.querySelector('#create-note').addEventListener('click', () => noteEditor());
   body.querySelector('#create-first-note')?.addEventListener('click', () => noteEditor());
   body.querySelectorAll('[data-edit-note]').forEach(button => button.addEventListener('click', () => noteEditor(items.find(note => note.id === button.dataset.editNote))));
+  body.querySelectorAll('[data-export-note]').forEach(button => button.addEventListener('click', () => {
+    void downloadNoteImage(button, items.find(note => note.id === button.dataset.exportNote));
+  }));
   body.querySelectorAll('[data-pin-note]').forEach(button => button.addEventListener('click', () => {
     const note = items.find(item => item.id === button.dataset.pinNote);
     void saveArrangement('/api/profile/notes/pin', { id: note.id, isPinned: !note.isPinned }, note.isPinned ? '已取消置顶，便签移至其他便签首位。' : '便签已置顶，并移至置顶组首位。', note.id);
@@ -343,10 +367,11 @@ async function notes() {
   }));
   body.querySelectorAll('[data-preview-note]').forEach(button => button.addEventListener('click', async () => {
     const note = items.find(item => item.id === button.dataset.previewNote);
-    const element = dialog(`${dialogHeading(escapeHtml(note.title))}<div class="note-reading-content">正在加载便签…</div><div class="form-actions"><button type="button" class="button secondary" data-close>关闭</button><button type="button" class="button primary" data-edit-preview>编辑便签</button></div>`);
+    const element = dialog(`${dialogHeading(escapeHtml(note.title))}<div class="note-reading-content">正在加载便签…</div><div class="form-actions"><button type="button" class="button secondary" data-close>关闭</button><button type="button" class="button secondary" data-export-preview>导出图片</button><button type="button" class="button primary" data-edit-preview>编辑便签</button></div>`);
     element.classList.add('note-reading-dialog');
     element.setAttribute('aria-label', note.title);
     element.querySelector('[data-edit-preview]').addEventListener('click', () => { element.close(); noteEditor(note); });
+    element.querySelector('[data-export-preview]').addEventListener('click', event => { void downloadNoteImage(event.currentTarget, note); });
     const content = element.querySelector('.note-reading-content');
     try { await renderNoteMarkdown(note.content, content); }
     catch {
@@ -391,7 +416,7 @@ function noteEditor(note) {
   const signal = listeners.signal;
   const formats = [['heading','标题'],['bold','加粗'],['italic','斜体'],['strike','删除线'],['quote','引用'],['bullet','无序列表'],['ordered','有序列表'],['task','任务列表'],['code','行内代码'],['codeblock','代码块'],['link','链接'],['image','本站图片'],['table','表格'],['divider','分割线']];
   const example = '## 小标题\n\n**加粗**、*斜体*、~~删除线~~\n\n> 引用文字\n\n- 无序列表\n1. 有序列表\n- [ ] 待办事项\n- [x] 已完成事项\n\n[链接文字](https://example.com)\n![图片说明](/api/media/图片ID)\n\n`行内代码`\n\n```js\nconsole.log("代码块");\n```\n\n| 列名 | 列名 |\n| --- | --- |\n| 内容 | 内容 |\n\n---';
-  element.querySelector('.note-editor-body').innerHTML = `<form class="note-editor" id="note-editor-form" data-mode="edit"><section class="note-editor-heading"><label>标题<input name="title" maxlength="80" value="${escapeHtml(savedTitle)}" placeholder="便签标题" required></label><details class="note-markdown-help"><summary>查看 Markdown 语法示例</summary><p>选中文字后点击格式按钮，也可以直接输入以下语法。图片地址请使用本站已有图片地址，外部图片不会自动加载。</p><pre>${escapeHtml(example)}</pre></details></section><div class="note-editor-view" role="group" aria-label="切换编辑和预览"><button type="button" data-mode="edit" aria-pressed="true">编辑</button><button type="button" data-mode="preview" aria-pressed="false">预览</button></div><div class="note-editor-grid"><section class="note-source-panel" aria-label="Markdown 源码"><div class="note-format-tools" role="toolbar" aria-label="Markdown 格式">${formats.map(([format,label]) => `<button type="button" data-format="${format}" title="${label}">${label}</button>`).join('')}</div><label class="sr-only" for="note-source">Markdown 正文</label><textarea id="note-source" name="content" maxlength="20000" spellcheck="false" placeholder="输入正文，或使用上方工具添加标题、列表和表格…" required>${escapeHtml(savedContent)}</textarea><div class="note-source-footer"><span id="note-character-count"></span><span>Tab 缩进 · Shift+Tab 取消缩进</span></div></section><section class="note-preview-panel" aria-label="Markdown 实时预览"><h2>实时预览</h2><div id="note-preview"></div></section></div><section class="note-close-confirm" role="alert" hidden><p>有未保存的修改，确定放弃吗？</p><div><button type="button" class="button secondary" id="continue-note-edit">继续编辑</button><button type="button" class="button ghost" id="discard-note-edit">放弃修改并关闭</button></div></section><footer class="note-editor-actions"><span id="note-save-state" role="status"></span><div><button type="button" class="button secondary" id="cancel-note-edit">取消</button><button type="submit" class="button primary" id="save-note">保存便签 <span class="note-shortcut" aria-hidden="true">Ctrl / ⌘ + S</span></button></div></footer></form>`;
+  element.querySelector('.note-editor-body').innerHTML = `<form class="note-editor" id="note-editor-form" data-mode="edit"><section class="note-editor-heading"><label>标题<input name="title" maxlength="80" value="${escapeHtml(savedTitle)}" placeholder="便签标题" required></label><details class="note-markdown-help"><summary>查看 Markdown 语法示例</summary><p>选中文字后点击格式按钮，也可以直接输入以下语法。图片地址请使用本站已有图片地址，外部图片不会自动加载。</p><pre>${escapeHtml(example)}</pre></details></section><div class="note-editor-view" role="group" aria-label="切换编辑和预览"><button type="button" data-mode="edit" aria-pressed="true">编辑</button><button type="button" data-mode="preview" aria-pressed="false">预览</button></div><div class="note-editor-grid"><section class="note-source-panel" aria-label="Markdown 源码"><div class="note-format-tools" role="toolbar" aria-label="Markdown 格式">${formats.map(([format,label]) => `<button type="button" data-format="${format}" title="${label}">${label}</button>`).join('')}</div><label class="sr-only" for="note-source">Markdown 正文</label><textarea id="note-source" name="content" maxlength="20000" spellcheck="false" placeholder="输入正文，或使用上方工具添加标题、列表和表格…" required>${escapeHtml(savedContent)}</textarea><div class="note-source-footer"><span id="note-character-count"></span><span>Tab 缩进 · Shift+Tab 取消缩进</span></div></section><section class="note-preview-panel" aria-label="Markdown 实时预览"><h2>实时预览</h2><div id="note-preview"></div></section></div><section class="note-close-confirm" role="alert" hidden><p>有未保存的修改，确定放弃吗？</p><div><button type="button" class="button secondary" id="continue-note-edit">继续编辑</button><button type="button" class="button ghost" id="discard-note-edit">放弃修改并关闭</button></div></section><footer class="note-editor-actions"><span id="note-save-state" role="status"></span><div><button type="button" class="button secondary" id="cancel-note-edit">取消</button><button type="button" class="button secondary" id="export-note-draft">导出图片</button><button type="submit" class="button primary" id="save-note">保存便签 <span class="note-shortcut" aria-hidden="true">Ctrl / ⌘ + S</span></button></div></footer></form>`;
   const form = element.querySelector('#note-editor-form');
   const title = form.querySelector('[name=title]');
   const source = form.querySelector('#note-source');
@@ -410,6 +435,20 @@ function noteEditor(note) {
 
   element.querySelector('#close-note-editor').addEventListener('click', requestClose);
   form.querySelector('#cancel-note-edit').addEventListener('click', requestClose);
+  form.querySelector('#export-note-draft').addEventListener('click', event => {
+    if (saving) return;
+    title.setCustomValidity(title.value.trim() ? '' : '请填写便签标题。');
+    source.setCustomValidity(source.value.trim() ? '' : '请填写便签正文。');
+    if (!title.value.trim() || !source.value.trim()) {
+      form.dataset.mode = 'edit';
+      form.querySelectorAll('.note-editor-view button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.mode === 'edit')));
+    }
+    const valid = form.reportValidity();
+    title.setCustomValidity('');
+    source.setCustomValidity('');
+    if (!valid) return;
+    void downloadNoteImage(event.currentTarget, { title: title.value.trim(), content: source.value });
+  });
   form.querySelector('#continue-note-edit').addEventListener('click', () => { closePrompt.hidden = true; source.focus(); });
   form.querySelector('#discard-note-edit').addEventListener('click', () => { if (!saving) { closed = true; element.close(); } });
   element.addEventListener('cancel', event => { event.preventDefault(); requestClose(); });

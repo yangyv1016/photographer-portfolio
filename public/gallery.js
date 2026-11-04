@@ -4,6 +4,66 @@ import { setProgressiveImage } from './progressive-image.js?v=20261101-progressi
 import { mountPhotoViewer } from './photo-viewer.js?v=20261101-album';
 
 const galleryData = JSON.parse(document.querySelector('#gallery-data').textContent);
+const visitCount = document.querySelector('#today-visit-count');
+if (visitCount) {
+  const visitUrl = `/api/visits/${encodeURIComponent(galleryData.publicId)}`;
+  let visitRequest;
+  async function recordVisibleVisit() {
+    if (document.hidden) {
+      document.addEventListener('visibilitychange', recordVisibleVisit);
+      return;
+    }
+    document.removeEventListener('visibilitychange', recordVisibleVisit);
+    visitRequest?.abort();
+    visitRequest = new AbortController();
+    const { signal } = visitRequest;
+    visitCount.textContent = '正在读取…';
+    visitCount.classList.remove('is-ready');
+    try {
+      const sendVisit = () => fetch(visitUrl, { method: 'POST', signal, keepalive: true });
+      // First visits from different tabs share the cookie issued by the first request.
+      const response = await (navigator.locks ? navigator.locks.request('portfolio-visit', { signal }, sendVisit) : sendVisit());
+      if (!response.ok) throw new Error('Unable to read visit count.');
+      const { today } = await response.json();
+      if (!Number.isSafeInteger(today) || today < 0) throw new Error('Invalid visit count.');
+      if (signal.aborted) return;
+      visitCount.textContent = today.toLocaleString('zh-CN');
+      visitCount.classList.add('is-ready');
+    } catch {
+      if (!signal.aborted) visitCount.textContent = '暂不可用';
+    }
+  }
+  void recordVisibleVisit();
+  window.addEventListener('pageshow', event => {
+    if (event.persisted) void recordVisibleVisit();
+  });
+}
+const compactIdentity = document.querySelector('.portfolio-sticky-identity');
+if (compactIdentity) {
+  const header = document.querySelector('.site-header');
+  const hero = document.querySelector('.profile-hero');
+  const desktop = matchMedia('(min-width: 1024px)');
+  let observer;
+
+  function observeProfile() {
+    observer?.disconnect();
+    if (!desktop.matches) {
+      compactIdentity.hidden = true;
+      return;
+    }
+    const headerHeight = header.getBoundingClientRect().height;
+    compactIdentity.style.setProperty('--portfolio-header-height', `${headerHeight}px`);
+    observer = new IntersectionObserver(([entry], source) => {
+      if (source === observer && desktop.matches) {
+        compactIdentity.hidden = entry.isIntersecting || entry.boundingClientRect.bottom >= headerHeight;
+      }
+    }, { rootMargin: `-${headerHeight}px 0px 0px 0px` });
+    observer.observe(hero);
+  }
+
+  desktop.addEventListener('change', observeProfile);
+  new ResizeObserver(observeProfile).observe(header);
+}
 mountNotebook(document.querySelector('#notebook'), galleryData.notes);
 const photos = galleryData.photos;
 const showPhotoNames = galleryData.showPhotoNames;

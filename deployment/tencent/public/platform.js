@@ -72,6 +72,142 @@ async function overview() {
   document.querySelector('#refresh-overview').addEventListener('click',()=>overview().catch(error=>notify(error.message,true)));
 }
 
+function drawVisitsChart(container, days, width) {
+  const height = 238;
+  const top = 14;
+  const bottom = height - 34;
+  const left = 60;
+  const right = width - 24;
+  const maximum = Math.max(...days.map(day => day.visitors));
+  const step = Math.max(1, Math.ceil(maximum / 4));
+  const y = value => Math.round(bottom - (value / (step * 4)) * (bottom - top));
+  const points = days.map((day, index) => ({
+    ...day,
+    x: Math.round(days.length === 1 ? (left + right) / 2 : left + (index / (days.length - 1)) * (right - left)),
+    y: y(day.visitors)
+  }));
+  const grid = Array.from({ length: 5 }, (_, index) => {
+    const value = index * step;
+    const lineY = y(value);
+    return `<line class="visits-gridline" x1="${left}" y1="${lineY}" x2="${right}" y2="${lineY}"/><text x="${left - 10}" y="${lineY + 4}" text-anchor="end">${value.toLocaleString('zh-CN')}</text>`;
+  }).join('');
+  const tickCount = Math.min(points.length, width < 420 ? 3 : width < 680 ? 4 : 6);
+  const ticks = Array.from({ length: tickCount }, (_, index) => {
+    const point = points[tickCount === 1 ? 0 : Math.round(index * (points.length - 1) / (tickCount - 1))];
+    const label = point.date.slice(5).replace('-', '/');
+    return `<text x="${point.x}" y="${bottom + 23}" text-anchor="middle">${escapeHtml(label)}</text>`;
+  }).join('');
+  const coordinates = points.map(point => `${point.x},${point.y}`).join(' ');
+  const first = points[0];
+  const last = points.at(-1);
+  const line = points.length > 1 ? `
+    <polygon class="visits-area" points="${first.x},${bottom} ${coordinates} ${last.x},${bottom}"/>
+    <polyline class="visits-line" points="${coordinates}"/>` : '';
+  const markers = (points.length <= 14 ? points : [last]).map(point => `
+    <circle class="visits-point" cx="${point.x}" cy="${point.y}" r="3.5"><title>${escapeHtml(point.date)} · ${point.visitors.toLocaleString('zh-CN')} 人</title></circle>`).join('');
+  container.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="visits-svg-title visits-svg-description" data-point-count="${points.length}">
+    <title id="visits-svg-title">每日访问人数曲线</title>
+    <desc id="visits-svg-description">${escapeHtml(first.date)} 至 ${escapeHtml(last.date)}。最高单日 ${maximum.toLocaleString('zh-CN')} 人。各日人数见每日明细。</desc>
+    ${grid}${line}${markers}${ticks}
+  </svg>`;
+}
+
+async function visits() {
+  const admin = app.hasAttribute('data-visits-admin');
+  body.innerHTML = `<section class="panel visits-panel" aria-labelledby="visits-title">
+    <div class="panel-heading visits-heading">
+      <div><h2 id="visits-title">每日访问人数</h2><p>按北京时间统计，同一浏览器在同一日去重。</p></div>
+      <div class="visits-filters">
+        ${admin ? '<label>统计范围<select id="visits-scope" disabled><option value="">全站</option></select></label>' : ''}
+        <label>时间范围<select id="visits-range"><option value="7">最近 7 天</option><option value="30" selected>最近 30 天</option><option value="90">最近 90 天</option></select></label>
+        <button type="button" class="button secondary" id="visits-refresh">刷新</button>
+      </div>
+    </div>
+    <div class="visits-summary">
+      <article class="stat-card"><span class="stat-label">今日访问人数</span><strong id="visits-today">—</strong><small id="visits-today-date">北京时间</small></article>
+      <article class="stat-card"><span class="stat-label">每日人数合计</span><strong id="visits-total">—</strong><small>所选时段的每日人数相加</small></article>
+    </div>
+    <p id="visits-status" class="visits-status" role="status"></p>
+    <div id="visits-chart" class="visits-chart" hidden></div>
+    <details id="visits-details" class="visits-details" hidden>
+      <summary>每日明细</summary>
+      <div class="visits-table-wrap" tabindex="0" role="region" aria-label="每日访问人数明细">
+        <table class="platform-table"><thead><tr><th scope="col">日期（北京时间）</th><th scope="col">访问人数</th></tr></thead><tbody></tbody></table>
+      </div>
+    </details>
+  </section>`;
+  const scope = body.querySelector('#visits-scope');
+  const range = body.querySelector('#visits-range');
+  const refresh = body.querySelector('#visits-refresh');
+  const today = body.querySelector('#visits-today');
+  const todayDate = body.querySelector('#visits-today-date');
+  const total = body.querySelector('#visits-total');
+  const status = body.querySelector('#visits-status');
+  const chart = body.querySelector('#visits-chart');
+  const details = body.querySelector('#visits-details');
+  const rows = details.querySelector('tbody');
+  let series = [];
+  let chartWidth = 0;
+  let requestNumber = 0;
+
+  function renderChart() {
+    const width = chart.clientWidth;
+    if (!series.length || !width || width === chartWidth) return;
+    chartWidth = width;
+    drawVisitsChart(chart, series, width);
+  }
+  new ResizeObserver(renderChart).observe(chart);
+
+  async function load() {
+    const current = ++requestNumber;
+    const query = new URLSearchParams({ days: range.value });
+    const accountId = scope?.value;
+    if (accountId) query.set('accountId', accountId);
+    refresh.disabled = true;
+    today.textContent = total.textContent = '—';
+    todayDate.textContent = '北京时间';
+    chart.hidden = details.hidden = true;
+    status.classList.remove('error');
+    status.textContent = '正在加载访问统计…';
+    try {
+      const data = await api(`/api/profile/visits?${query}`);
+      if (current !== requestNumber) return;
+      if (scope) {
+        scope.replaceChildren(new Option('全站', ''));
+        for (const account of data.accounts) {
+          scope.add(new Option(`${account.displayName} / ${account.publicId}`, String(account.id)));
+        }
+        scope.value = accountId;
+        scope.disabled = false;
+      }
+      today.textContent = data.today.toLocaleString('zh-CN');
+      todayDate.textContent = `${data.days.at(-1).date} · 北京时间`;
+      total.textContent = data.total.toLocaleString('zh-CN');
+      series = data.days.filter(day => day.date >= data.availableFrom);
+      chartWidth = 0;
+      chart.hidden = details.hidden = !series.length;
+      const messages = [];
+      if (scope && !accountId) messages.push('全站汇总会合并同一浏览器当天对多个主页的访问。');
+      if (series.length < data.days.length) messages.push(`统计自 ${data.availableFrom} 开始，曲线展示已采集的日期。`);
+      if (!data.total) messages.push('所选时段暂无访问记录。');
+      status.textContent = messages.join(' ');
+      rows.innerHTML = series.slice().reverse().map(day => `<tr><td><time datetime="${escapeHtml(day.date)}">${escapeHtml(day.date)}</time></td><td>${day.visitors.toLocaleString('zh-CN')}</td></tr>`).join('');
+      renderChart();
+    } catch (error) {
+      if (current !== requestNumber) return;
+      status.classList.add('error');
+      status.textContent = `${error.message} 请点击刷新重试。`;
+    } finally {
+      if (current === requestNumber) refresh.disabled = false;
+    }
+  }
+
+  scope?.addEventListener('change', load);
+  range.addEventListener('change', load);
+  refresh.addEventListener('click', load);
+  await load();
+}
+
 async function accounts() {
   const data = await api('/api/platform/accounts');
   body.innerHTML = `<section class="panel"><div class="panel-heading"><div><h2>摄影师账户</h2><p>${data.accounts.length} 个账户。点击「分配容量」单独设置每个账户的上传上限。</p></div><a class="button primary" href="/admin/invitations">邀请摄影师</a></div><div class="table-wrap"><table class="platform-table"><thead><tr><th>摄影师 / ID</th><th>状态</th><th>作品</th><th>已用 / 分配容量</th><th>加入时间</th><th>操作</th></tr></thead><tbody>${data.accounts.map(account=>`<tr><td><strong>${escapeHtml(account.displayName)}</strong><small>/${escapeHtml(account.publicId)} · ${escapeHtml(account.loginId)}</small></td><td><span class="badge ${account.deletedAt ? 'deleted' : account.active ? 'active' : 'disabled'}">${account.deletedAt ? '回收站' : account.active ? '正常' : '停用'}</span>${account.role === 'admin' ? ' <span class="badge admin">管理员</span>' : ''}</td><td>${account.photoCount} 张<small>${account.seriesCount} 个系列</small></td><td><strong>${bytes(account.storageBytes)} / ${bytes(account.quotaBytes)}</strong><div class="meter account-storage-meter"><span style="width:${Math.min(100,Math.round((account.storageBytes+account.pendingBytes)/account.quotaBytes*100))}%"></span></div><small>剩余 ${bytes(account.availableBytes)}${account.pendingBytes ? ` · 待上传 ${bytes(account.pendingBytes)}` : ''}${account.storageComplete ? '' : ' · 容量核对中'}</small></td><td>${date(account.createdAt)}</td><td class="actions"><button type="button" class="button secondary small" data-quota="${account.id}">分配容量</button><a class="button ghost small" href="/${escapeHtml(account.publicId)}">主页 ↗</a>${account.role !== 'admin' ? account.deletedAt ? `<button type="button" class="button ghost small" data-account="${account.id}" data-action="restore">恢复</button>` : `<button type="button" class="button ghost small" data-account="${account.id}" data-action="${account.active ? 'disable' : 'enable'}">${account.active ? '停用' : '启用'}</button><button type="button" class="button ghost small" data-account="${account.id}" data-action="trash">回收站</button>` : ''}</td></tr>`).join('')}</tbody></table></div></section>`;
@@ -609,7 +745,7 @@ function noteEditor(note) {
   title.focus();
 }
 
-const pages={overview,accounts,invitations,profile,notes};
+const pages={overview,accounts,invitations,profile,notes,visits};
 pages[app.dataset.page]().catch(error=>notify(error.message,true));
 if (app.dataset.page === 'notes') {
   let refreshing = false;

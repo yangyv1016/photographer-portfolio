@@ -11,6 +11,7 @@ import { platformApi, accountUsage, backfillStorage } from './platform-api.mjs';
 import { directoryPage, workspacePage, photoWorkspace } from './platform-html.mjs';
 import { objectResponse } from './storage.mjs';
 import { previewResponse } from './preview.mjs';
+import { recordPublicVisit } from './visit-statistics.mjs';
 import { uploadPart, finishUpload, startUpload } from './uploads.mjs';
 import { renderPortfolio } from '../../app/route.ts';
 import { renderAlbum } from '../../app/album.ts';
@@ -52,6 +53,8 @@ async function route(request, clientIp) {
   if (path === '/login' || path === '/admin/login') return login(request, clientIp);
   if (path === '/register') return login(request, clientIp, true);
   if ((path === '/logout' || path === '/admin/logout') && request.method === 'POST') return logout(request);
+  const visitPage = path.match(/^\/api\/visits\/([a-z][a-z0-9_-]{2,23})$/);
+  if (visitPage) return recordPublicVisit(request, visitPage[1], clientIp);
   if (path === '/' && request.method === 'GET') {
     const accounts = platformDatabase.prepare('SELECT * FROM users WHERE is_active=1 AND listed=1 AND deleted_at IS NULL ORDER BY created_at,id').all();
     return new Response(directoryPage(accounts.map(account=>({ ...account, ...accountUsage(account) }))), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
@@ -68,7 +71,7 @@ async function route(request, clientIp) {
         const profile = { publicId: account.public_id, name: account.display_name, siteName: account.site_name, showPhotoNames: account.show_photo_names === 1 };
         return renderAlbum(profile, { selectedSeriesId: url.searchParams.get('series') ?? '', workspace: true });
       }
-      const workspace = new Map([['/dashboard/profile','profile'],['/dashboard/notes','notes'],['/admin','overview'],['/admin/accounts','accounts'],['/admin/invitations','invitations']]);
+      const workspace = new Map([['/dashboard/profile','profile'],['/dashboard/notes','notes'],['/dashboard/visits','visits'],['/admin','overview'],['/admin/accounts','accounts'],['/admin/invitations','invitations']]);
       if (workspace.has(path) && request.method === 'GET') return new Response(workspacePage(account,workspace.get(path)), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
       if (path.startsWith('/api/platform/') || path.startsWith('/api/profile') || path === '/api/session') return platformApi(request,account);
       if ((path === '/api/admin/export-image' || path === '/api/admin/download') && request.method === 'GET') {
@@ -135,7 +138,7 @@ async function route(request, clientIp) {
       const profile = { publicId: account.public_id, name: account.display_name, siteName: account.site_name, avatarUrl: account.avatar_key ? `/api/avatars/${account.public_id}` : '', coverUrl: account.cover_key ? `/api/covers/${account.public_id}` : '', bio: account.bio, introduction: account.introduction, region: account.region, showPhotoNames: account.show_photo_names === 1, notes };
       return withAccount(account, () => publicPage[2]
         ? renderAlbum(profile, { selectedSeriesId: url.searchParams.get('series') ?? '' })
-        : renderPortfolio(profile));
+        : renderPortfolio({ ...profile, visitStatistics: true }));
     }
   }
   return new Response('Not found', { status: 404 });

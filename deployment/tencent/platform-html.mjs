@@ -1,11 +1,13 @@
 import { adminHtml } from '../../app/admin-html.ts';
 
+const platformAssetsVersion = '20261104-visits';
+
 export function escapeHtml(value) {
   return String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
 }
 
 function documentPage(title, body, script = false) {
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} · 摄影师作品展示</title><link rel="stylesheet" href="/platform.css?v=20261102-note-image"><link rel="stylesheet" href="/note-markdown.css?v=20261101-markdown">${script ? '<script type="module" src="/platform.js?v=20261102-note-image"></script>' : ''}</head><body>${body}</body></html>`;
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} · 摄影师作品展示</title><link rel="stylesheet" href="/platform.css?v=${platformAssetsVersion}"><link rel="stylesheet" href="/note-markdown.css?v=20261101-markdown">${script ? `<script type="module" src="/platform.js?v=${platformAssetsVersion}"></script>` : ''}</head><body>${body}</body></html>`;
 }
 
 export function authPage(mode, error = '') {
@@ -20,20 +22,31 @@ export function authPage(mode, error = '') {
 }
 
 export function sidebar(account, active) {
-  const navigation = [['/dashboard','photos','作品管理'],['/dashboard/profile','profile','个人资料'],['/dashboard/notes','notes','便签本']];
-  const icons={notes:'<path d="M6 3h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6V3Z"/><path d="M3 7h5m-5 5h5m-5 5h5m3-9h5m-5 4h5"/>',photos:'<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8" cy="10" r="1.5"/><path d="m4 17 5-5 4 4 3-3 5 5"/>',profile:'<circle cx="12" cy="8" r="3"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/>',overview:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',accounts:'<circle cx="9" cy="8" r="3"/><path d="M2 21v-2a7 7 0 0 1 14 0v2M17 5a3 3 0 0 1 0 6m5 10v-2a6 6 0 0 0-4-6"/>',invitations:'<path d="M4 5h16v5a2 2 0 0 0 0 4v5H4v-5a2 2 0 0 0 0-4V5Z"/><path d="M15 5v3m0 3v2m0 3v3"/>'};
+  const navigation = [['/dashboard','photos','作品管理'],['/dashboard/profile','profile','个人资料'],['/dashboard/notes','notes','便签本'],['/dashboard/visits','visits','访问统计']];
+  const icons = {
+    visits: '<path d="M4 4v16h16M7 15l4-5 4 3 5-7"/>',
+    notes:'<path d="M6 3h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6V3Z"/><path d="M3 7h5m-5 5h5m-5 5h5m3-9h5m-5 4h5"/>',photos:'<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8" cy="10" r="1.5"/><path d="m4 17 5-5 4 4 3-3 5 5"/>',profile:'<circle cx="12" cy="8" r="3"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/>',overview:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',accounts:'<circle cx="9" cy="8" r="3"/><path d="M2 21v-2a7 7 0 0 1 14 0v2M17 5a3 3 0 0 1 0 6m5 10v-2a6 6 0 0 0-4-6"/>',invitations:'<path d="M4 5h16v5a2 2 0 0 0 0 4v5H4v-5a2 2 0 0 0 0-4V5Z"/><path d="M15 5v3m0 3v2m0 3v3"/>'
+  };
   if (account.role === 'admin') navigation.push(['/admin','overview','平台概览'],['/admin/accounts','accounts','账户管理'],['/admin/invitations','invitations','邀请码']);
   return `<aside class="platform-sidebar"><a href="/" class="platform-brand">摄影师作品展示<span>WORKSPACE</span></a><div class="sidebar-label">WORKSPACE</div><nav aria-label="工作台导航">${navigation.map(([href,id,label])=>`<a href="${href}" class="${id === active ? 'selected' : ''}" ${id === active ? 'aria-current="page"' : ''}><svg class="nav-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[id]}</svg>${label}</a>`).join('')}</nav><a class="sidebar-preview" href="/${escapeHtml(account.public_id)}">查看我的主页 ↗</a><div class="sidebar-account">${account.avatar_key ? `<img src="/api/avatars/${escapeHtml(account.public_id)}" alt="">` : ''}<div><strong>${escapeHtml(account.display_name)}</strong><small>${escapeHtml(account.login_id)}${account.role === 'admin' ? ' · 管理员' : ''}</small></div></div><form method="post" action="/logout"><button class="sidebar-logout" type="submit">退出登录</button></form></aside>`;
 }
 
 export function workspacePage(account, active) {
-  const headings = { notes: ['便签本','写下随想，展示在个人主页的作品下方'], profile: ['个人资料','个人宣传页与账户信息'], overview: ['平台概览','账户、资源与运行状态'], accounts: ['账户管理','管理摄影师账户与存储配额'], invitations: ['邀请码','邀请新的摄影师加入'] };
+  const headings = {
+    notes: ['便签本','写下随想，展示在个人主页的作品下方'],
+    profile: ['个人资料','个人宣传页与账户信息'],
+    visits: ['访问统计', account.role === 'admin' ? '查看全站及各摄影师主页的访问变化' : '查看个人主页的每日访问变化'],
+    overview: ['平台概览','账户、资源与运行状态'],
+    accounts: ['账户管理','管理摄影师账户与存储配额'],
+    invitations: ['邀请码','邀请新的摄影师加入']
+  };
   const [title, description] = headings[active];
-  return documentPage(title, `<div class="workspace-layout">${sidebar(account,active)}<main class="platform-content" id="platform-app" data-page="${active}"><header class="workspace-heading"><div><p class="eyebrow">${account.role === 'admin' && !['profile','notes'].includes(active) ? 'PLATFORM' : 'WORKSPACE'}</p><h1>${title}</h1><p class="muted">${description}</p></div><a class="button secondary" href="/">摄影师目录 ↗</a></header><p id="platform-feedback" class="form-message" role="status" hidden></p><div id="platform-body"><p class="loading-state">正在加载…</p></div></main></div>`,true);
+  const adminVisits = active === 'visits' && account.role === 'admin' ? ' data-visits-admin' : '';
+  return documentPage(title, `<div class="workspace-layout">${sidebar(account,active)}<main class="platform-content" id="platform-app" data-page="${active}"${adminVisits}><header class="workspace-heading"><div><p class="eyebrow">${account.role === 'admin' && !['profile','notes'].includes(active) ? 'PLATFORM' : 'WORKSPACE'}</p><h1>${title}</h1><p class="muted">${description}</p></div><a class="button secondary" href="/">摄影师目录 ↗</a></header><p id="platform-feedback" class="form-message" role="status" hidden></p><div id="platform-body"><p class="loading-state">正在加载…</p></div></main></div>`,true);
 }
 
 export function photoWorkspace(account) {
-  return adminHtml.replace('</head>','<link rel="stylesheet" href="/platform.css?v=20261102-note-image"></head>')
+  return adminHtml.replace('</head>',`<link rel="stylesheet" href="/platform.css?v=${platformAssetsVersion}"></head>`)
     .replace('<body>',`<body class="photo-workspace"><div class="workspace-layout">${sidebar(account,'photos')}<div class="photo-workspace-content">`)
     .replace('</body>','</div></div></body>')
     .replace('href="/">查看作品集</a>',`href="/${escapeHtml(account.public_id)}">查看我的主页 ↗</a>`)

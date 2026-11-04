@@ -7,6 +7,7 @@ import { getAccountGallery, getGalleryNotes } from './database.mjs';
 import { env, objectHead } from './storage.mjs';
 import { dataDirectory, storageBackend } from './config.mjs';
 import { verifyPassword, hashPassword, reservedIds } from './auth.mjs';
+import { visitStatistics } from './visit-statistics.mjs';
 import { DELETE as cancelUpload } from '../../app/api/admin/uploads/route.ts';
 
 export const uploadReservations = new Map();
@@ -52,8 +53,12 @@ export async function backfillStorage() {
 }
 
 export async function platformApi(request, account) {
-  const path = new URL(request.url).pathname;
+  const { pathname: path, searchParams } = new URL(request.url);
   if (path === '/api/session') return Response.json({ account: publicAccount(account), usage: accountUsage(account) });
+  if (path === '/api/profile/visits') {
+    if (request.method !== 'GET') return Response.json({ error: '不支持此操作。' }, { status: 405, headers: { Allow: 'GET' } });
+    return visitStatistics(searchParams, account);
+  }
   if (path === '/api/profile/notes/pin' || path === '/api/profile/notes/order') {
     if (request.method !== 'POST') return Response.json({ error: '不支持此操作。' }, { status: 405, headers: { Allow: 'POST' } });
     const pinning = path === '/api/profile/notes/pin';

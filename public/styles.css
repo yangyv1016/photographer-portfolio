@@ -99,6 +99,7 @@ main img,.wall-photo,#lightbox-image{-webkit-user-drag:none;-webkit-touch-callou
   overflow: hidden;
   margin-bottom: 1.8rem;
   color: #655d50;
+  white-space: pre-wrap;
   font-size: .9rem;
   line-height: 1.85;
   overflow-wrap: anywhere;

@@ -1,5 +1,5 @@
 import { mountPhotoWall } from './photo-wall.js?v=20261102-series-order';
-import { mountNotebook } from './notebook.js?v=20261105-wide-notes';
+import { mountNotebook } from './notebook.js?v=20261105-note-linebreaks';
 import { setProgressiveImage } from './progressive-image.js?v=20261101-progressive';
 import { mountPhotoViewer } from './photo-viewer.js?v=20261101-album';
 

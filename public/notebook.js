@@ -12,7 +12,7 @@ export function mountNotebook(notebook, notes) {
     void renderNoteMarkdown(note.content, preview)
       .then(() => preview.content.textContent, () => note.content)
       .then(text => {
-        const characters = [...text.replace(/\s+/g, ' ').trim()];
+        const characters = [...text.replace(/\r\n?/g, '\n').replace(/^\n+|\n+$/g, '')];
         summary.textContent = characters.slice(0, 180).join('') + (characters.length > 180 ? '…' : '');
       });
   }

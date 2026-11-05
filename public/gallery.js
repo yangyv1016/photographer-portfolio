@@ -38,33 +38,72 @@ if (visitCount) {
     if (event.persisted) void recordVisibleVisit();
   });
 }
-const compactIdentity = document.querySelector('.portfolio-sticky-identity');
-if (compactIdentity) {
-  const header = document.querySelector('.site-header');
-  const portfolioLayout = compactIdentity.closest('.portfolio-with-sidebar');
-  const hero = document.querySelector('.profile-hero');
-  const desktop = matchMedia('(min-width: 1024px)');
-  let observer;
+const header = document.querySelector('.site-header');
+const navigation = document.querySelector('#portfolio-navigation');
+const navigationToggle = document.querySelector('.mobile-navigation-toggle');
+const navigationLinks = [...navigation.querySelectorAll('a[href^="#"]')];
+const mobileNavigation = matchMedia('(max-width: 1023px)');
+navigationToggle.hidden = navigationLinks.length === 0;
 
-  function observeProfile() {
-    observer?.disconnect();
-    if (!desktop.matches) {
-      compactIdentity.hidden = true;
-      return;
-    }
-    const headerHeight = header.getBoundingClientRect().height;
-    portfolioLayout.style.setProperty('--portfolio-header-height', `${headerHeight}px`);
-    observer = new IntersectionObserver(([entry], source) => {
-      if (source === observer && desktop.matches) {
-        compactIdentity.hidden = entry.isIntersecting || entry.boundingClientRect.bottom >= headerHeight;
-      }
-    }, { rootMargin: `-${headerHeight}px 0px 0px 0px` });
-    observer.observe(hero);
-  }
-
-  desktop.addEventListener('change', observeProfile);
-  new ResizeObserver(observeProfile).observe(header);
+function setNavigationOpen(open) {
+  navigationToggle.setAttribute('aria-expanded', String(open));
+  header.classList.toggle('is-navigation-open', open);
 }
+
+function updateNavigationSelection() {
+  for (const link of navigationLinks) {
+    if (location.hash && link.hash === location.hash) link.setAttribute('aria-current', 'location');
+    else link.removeAttribute('aria-current');
+  }
+}
+
+navigationToggle.addEventListener('click', () => {
+  setNavigationOpen(navigationToggle.getAttribute('aria-expanded') !== 'true');
+});
+header.addEventListener('click', event => {
+  if (!event.target.closest('a[href^="#"]')) return;
+  setNavigationOpen(false);
+  if (mobileNavigation.matches) navigationToggle.focus({ preventScroll: true });
+});
+document.addEventListener('click', event => {
+  if (!header.contains(event.target)) setNavigationOpen(false);
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && navigationToggle.getAttribute('aria-expanded') === 'true') {
+    setNavigationOpen(false);
+    navigationToggle.focus({ preventScroll: true });
+  }
+});
+mobileNavigation.addEventListener('change', () => setNavigationOpen(false));
+window.addEventListener('pagehide', () => setNavigationOpen(false));
+window.addEventListener('hashchange', updateNavigationSelection);
+updateNavigationSelection();
+
+const compactIdentity = document.querySelector('.portfolio-sticky-identity');
+const hero = document.querySelector('.profile-hero');
+const desktop = matchMedia('(min-width: 1024px)');
+let profileObserver;
+
+function updateHeaderLayout() {
+  const headerHeight = header.getBoundingClientRect().height;
+  document.documentElement.style.setProperty('--portfolio-header-height', `${headerHeight}px`);
+  profileObserver?.disconnect();
+  if (!compactIdentity) return;
+  if (!desktop.matches) {
+    compactIdentity.hidden = true;
+    return;
+  }
+  profileObserver = new IntersectionObserver(([entry], source) => {
+    if (source === profileObserver && desktop.matches) {
+      compactIdentity.hidden = entry.isIntersecting || entry.boundingClientRect.bottom >= headerHeight;
+    }
+  }, { rootMargin: `-${headerHeight}px 0px 0px 0px` });
+  profileObserver.observe(hero);
+}
+
+desktop.addEventListener('change', updateHeaderLayout);
+new ResizeObserver(updateHeaderLayout).observe(header);
+updateHeaderLayout();
 mountNotebook(document.querySelector('#notebook'), galleryData.notes);
 const photos = galleryData.photos;
 const showPhotoNames = galleryData.showPhotoNames;

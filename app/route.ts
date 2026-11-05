@@ -69,7 +69,7 @@ export async function renderPortfolio(profile?: PortfolioProfile) {
     .replace("<p>场照 / 正片</p>", `<p>${gallery.series.map(series => escapeHtml(series.name)).join(" / ")}</p>`)
     .replace("<!--series-nav-->", navigation)
     .replace("<!--header-action-->", profile ? '<a class="directory-entry" href="/"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>浏览摄影师</a>' : '<span class="header-note">COSPLAY PHOTOGRAPHY</span>')
-    .replace("<!--notebook-nav-->", notes.length ? '<a href="#notebook">便签本</a>' : "")
+    .replace("<!--notebook-nav-->", notes.length ? '<a href="#notebook"><span class="note-nav-icon" aria-hidden="true">✎</span>便签本</a>' : "")
     .replace("<!--portfolio-sidebar-->", sidebars)
     .replace("<!--series-collections-->", gallery.error ? `<p class="gallery-empty portfolio-error">${escapeHtml(gallery.error)} <a href="/">重新加载</a></p>` : sections)
     .replace("<!--portfolio-notes-->", notebook)

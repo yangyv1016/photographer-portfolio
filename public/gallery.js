@@ -1,5 +1,5 @@
 import { mountPhotoWall } from './photo-wall.js?v=20261102-series-order';
-import { mountNotebook } from './notebook.js?v=20261101-markdown';
+import { mountNotebook } from './notebook.js?v=20261105-wide-notes';
 import { setProgressiveImage } from './progressive-image.js?v=20261101-progressive';
 import { mountPhotoViewer } from './photo-viewer.js?v=20261101-album';
 
@@ -41,6 +41,7 @@ if (visitCount) {
 const compactIdentity = document.querySelector('.portfolio-sticky-identity');
 if (compactIdentity) {
   const header = document.querySelector('.site-header');
+  const portfolioLayout = compactIdentity.closest('.portfolio-with-sidebar');
   const hero = document.querySelector('.profile-hero');
   const desktop = matchMedia('(min-width: 1024px)');
   let observer;
@@ -52,7 +53,7 @@ if (compactIdentity) {
       return;
     }
     const headerHeight = header.getBoundingClientRect().height;
-    compactIdentity.style.setProperty('--portfolio-header-height', `${headerHeight}px`);
+    portfolioLayout.style.setProperty('--portfolio-header-height', `${headerHeight}px`);
     observer = new IntersectionObserver(([entry], source) => {
       if (source === observer && desktop.matches) {
         compactIdentity.hidden = entry.isIntersecting || entry.boundingClientRect.bottom >= headerHeight;

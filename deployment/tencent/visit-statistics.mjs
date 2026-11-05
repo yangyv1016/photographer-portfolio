@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import { isIP, SocketAddress } from 'node:net';
 import { origin } from './config.mjs';
 import { getPublicAccount, platformDatabase } from './platform-database.mjs';
+import { getSession } from './auth.mjs';
 
 const dayMilliseconds = 24 * 60 * 60 * 1000;
 const shanghaiOffset = 8 * 60 * 60 * 1000;
@@ -123,6 +124,9 @@ export function recordPublicVisit(request, publicId, clientIp) {
   const canonicalIp = address.address.replace(/^::ffff:/, '');
   const now = Date.now();
   const { date } = visitDay(now);
+  if (getSession(request)?.id === account.id) {
+    return Response.json({ today: readDailyTotal.get(date, account.storage_id)?.visitors ?? 0 });
+  }
   if (date >= ipDedupFrom) {
     const visitorHash = createHmac('sha256', signingKey).update(`${date}:ip:${canonicalIp}`).digest('hex');
     insertVisit.run(date, visitorHash, account.storage_id);

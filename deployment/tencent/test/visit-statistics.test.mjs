@@ -311,3 +311,137 @@ test('Browser-era history migrates once and switches to IP deduplication at the 
     await rm(data, { recursive: true, force: true });
   }
 });
+
+test('Only a valid session for the homepage owner is excluded in browser and IP modes', { timeout: 45000 }, async () => {
+  const data = await mkdtemp(resolve(tmpdir(), 'yangyu-visits-owner-test-'));
+  const password = randomBytes(18).toString('base64url');
+  const environment = {
+    ...process.env, YANGYU_ROOT: directory, DATA_DIRECTORY: data, PUBLIC_ORIGIN: origin, PORT: '18126',
+    STORAGE_BACKEND: 'local', COS_BUCKET: 'test-1250000000', COS_REGION: 'ap-chengdu',
+    COS_SECRET_ID: 'test-only-id', COS_SECRET_KEY: 'test-only-key',
+  };
+  const clock = resolve(data, 'clock.txt');
+  const clockStub = resolve(data, 'clock.mjs');
+  const request = (path, options = {}) => fetch(origin + path, { redirect: 'manual', ...options });
+  const login = async username => {
+    const response = await request('/login', {
+      method: 'POST', headers: { Origin: origin }, body: new URLSearchParams({ username, password }),
+    });
+    assert.equal(response.status, 303);
+    return response.headers.get('set-cookie').split(';')[0];
+  };
+  const visit = (id, ip, cookie) => request('/api/visits/' + id, {
+    method: 'POST', headers: { Origin: origin, 'X-Forwarded-For': ip, ...(cookie ? { Cookie: cookie } : {}) },
+  });
+  let server, catalog;
+  try {
+    const setup = spawn(process.execPath, ['app/setup-admin.mjs'], { cwd: directory, env: environment, stdio: ['pipe', 'pipe', 'pipe'] });
+    setup.stdin.end(JSON.stringify({ username: 'admin', password }));
+    assert.equal((await once(setup, 'exit'))[0], 0);
+    catalog = new DatabaseSync(resolve(data, 'platform.sqlite'));
+    catalog.exec('CREATE TABLE visitor_settings (id INTEGER PRIMARY KEY CHECK (id=1), signing_key TEXT NOT NULL, available_from TEXT NOT NULL);' +
+      'CREATE TABLE daily_visits (visit_date TEXT NOT NULL, visitor_hash TEXT NOT NULL, storage_id TEXT NOT NULL REFERENCES users(storage_id), PRIMARY KEY(visit_date,visitor_hash,storage_id)) WITHOUT ROWID;' +
+      'CREATE INDEX daily_visits_account ON daily_visits(storage_id,visit_date);');
+    catalog.prepare('INSERT INTO visitor_settings VALUES (1,?,?)').run(randomBytes(32).toString('hex'), '2026-11-03');
+    await writeFile(clock, String(beforeMidnight));
+    await writeFile(clockStub, "import { readFileSync } from 'node:fs';\nDate.now = () => Number(readFileSync(" + JSON.stringify(clock) + ", 'utf8'));\n");
+    server = await startServer(environment, clockStub);
+    const adminCookie = await login('admin');
+    const invitation = await request('/api/platform/invitations', {
+      method: 'POST', headers: { Origin: origin, Cookie: adminCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ count: 2, days: 7, quotaBytes: 10000, note: 'Owner visit exclusion' }),
+    });
+    assert.equal(invitation.status, 201);
+    const { codes } = await invitation.json();
+    const accounts = [];
+    for (const [index, username] of ['owner-user', 'other-login'].entries()) {
+      const registered = await request('/register', {
+        method: 'POST', headers: { Origin: origin }, body: new URLSearchParams({
+          username, displayName: username, password, passwordConfirmation: password, invitation: codes[index],
+        }),
+      });
+      assert.equal(registered.status, 303);
+      const cookie = registered.headers.get('set-cookie').split(';')[0];
+      const { account } = await (await request('/api/session', { headers: { Cookie: cookie } })).json();
+      const renamed = await request('/api/profile', {
+        method: 'PATCH', headers: { Origin: origin, Cookie: cookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: username, publicId: index ? 'other-page' : 'owner-page', bio: '', listed: true }),
+      });
+      assert.equal(renamed.status, 200);
+      accounts.push({ cookie, account });
+    }
+    const [owner, other] = accounts;
+    const originalStorageId = catalog.prepare('SELECT storage_id FROM users WHERE id=?').get(owner.account.id).storage_id;
+    const renameLogin = await request('/api/profile/login-id', {
+      method: 'POST', headers: { Origin: origin, Cookie: owner.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ loginId: 'other-page', confirmationLoginId: 'other-page', currentPassword: password }),
+    });
+    assert.equal(renameLogin.status, 200);
+    assert.equal(catalog.prepare('SELECT storage_id FROM users WHERE id=?').get(owner.account.id).storage_id, originalStorageId);
+
+    for (const [index, date] of ['2026-11-03', '2026-11-04'].entries()) {
+      const now = beforeMidnight + index * 2000;
+      await writeFile(clock, String(now));
+      const ownerCookie = await login('other-page');
+      const otherCookie = await login('other-login');
+      const currentAdminCookie = await login('admin');
+      const identity = await (await request('/api/session', { headers: { Cookie: ownerCookie } })).json();
+      assert.equal(identity.account.id, owner.account.id);
+      assert.equal(identity.account.loginId, 'other-page');
+      assert.equal(identity.account.publicId, 'owner-page');
+      const statistics = await (await request('/api/profile/visits', { headers: { Cookie: ownerCookie } })).json();
+      assert.equal(statistics.todayDeduplication, index ? 'ip' : 'browser');
+
+      for (const [publicId, cookie] of [['owner-user', ownerCookie], ['owner-page', ownerCookie], ['other-page', otherCookie], ['yangyu', currentAdminCookie]]) {
+        const response = await visit(publicId, '198.51.100.201', cookie);
+        assert.equal(response.status, 200);
+        assert.equal(response.headers.get('set-cookie'), null, 'An excluded owner must not receive a visitor identity');
+        assert.deepEqual(await response.json(), { today: 0 });
+      }
+      assert.equal(catalog.prepare('SELECT COUNT(*) AS count FROM daily_visits WHERE visit_date=?').get(date).count, 0);
+      assert.equal(catalog.prepare('SELECT COUNT(*) AS count FROM daily_visit_totals WHERE visit_date=?').get(date).count, 0);
+
+      assert.deepEqual(await (await visit('owner-page', '198.51.100.202')).json(), { today: 1 });
+      const visitsBeforeOwner = catalog.prepare('SELECT * FROM daily_visits ORDER BY visit_date,visitor_hash,storage_id').all();
+      const totalsBeforeOwner = catalog.prepare('SELECT * FROM daily_visit_totals ORDER BY visit_date,scope_id').all();
+      for (const publicId of ['owner-user', 'owner-page']) {
+        const response = await visit(publicId, '198.51.100.203', ownerCookie + '; yangyu_visitor=invalid');
+        assert.equal(response.status, 200);
+        assert.equal(response.headers.get('set-cookie'), null);
+        assert.deepEqual(await response.json(), { today: 1 }, 'Owners see the saved total without recording another visit');
+      }
+      assert.deepEqual(catalog.prepare('SELECT * FROM daily_visits ORDER BY visit_date,visitor_hash,storage_id').all(), visitsBeforeOwner);
+      assert.deepEqual(catalog.prepare('SELECT * FROM daily_visit_totals ORDER BY visit_date,scope_id').all(), totalsBeforeOwner);
+
+      assert.deepEqual(await (await visit('owner-page', '198.51.100.204', otherCookie)).json(), { today: 2 });
+      assert.deepEqual(await (await visit('owner-page', '198.51.100.205', currentAdminCookie)).json(), { today: 3 });
+      assert.deepEqual(await (await visit('other-page', '198.51.100.206', ownerCookie)).json(), { today: 1 }, 'A matching login name does not make this the session owner’s homepage');
+      assert.deepEqual(await (await visit('other-page', '198.51.100.207', currentAdminCookie)).json(), { today: 2 });
+      assert.deepEqual(await (await visit('other-page', '198.51.100.208', otherCookie)).json(), { today: 2 });
+      assert.deepEqual(await (await visit('yangyu', '198.51.100.208', currentAdminCookie)).json(), { today: 0 });
+      const forgedSession = await visit('owner-page', '198.51.100.209', 'yangyu_admin=' + randomBytes(32).toString('hex'));
+      assert.equal(forgedSession.status, 200);
+      assert.deepEqual(await forgedSession.json(), { today: 4 });
+
+      const tokenHash = createHash('sha256').update(ownerCookie.slice('yangyu_admin='.length)).digest('hex');
+      assert.equal(catalog.prepare('UPDATE sessions SET expires_at=? WHERE token_hash=?').run(now - 1, tokenHash).changes, 1);
+      const expiredSession = await visit('owner-page', '198.51.100.210', ownerCookie);
+      assert.equal(expiredSession.status, 200);
+      assert.deepEqual(await expiredSession.json(), { today: 5 });
+      for (const response of [forgedSession, expiredSession]) {
+        if (index) assert.equal(response.headers.get('set-cookie'), null);
+        else assert.match(response.headers.get('set-cookie'), /^yangyu_visitor=/);
+      }
+      assert.equal(catalog.prepare('SELECT COUNT(*) AS count FROM daily_visits WHERE visit_date=?').get(date).count, 7);
+      assert.equal(catalog.prepare("SELECT visitors FROM daily_visit_totals WHERE visit_date=? AND scope_id=''").get(date).visitors, 7);
+      assert.equal(catalog.prepare('SELECT visitors FROM daily_visit_totals WHERE visit_date=? AND scope_id=?').get(date, originalStorageId).visitors, 5);
+      assert.equal(catalog.prepare('SELECT visitors FROM daily_visit_totals WHERE visit_date=? AND scope_id=(SELECT storage_id FROM users WHERE id=?)').get(date, other.account.id).visitors, 2);
+      assert.equal(catalog.prepare('SELECT COUNT(*) AS count FROM daily_visit_totals WHERE visit_date=? AND scope_id=(SELECT storage_id FROM users WHERE id=1)').get(date).count, 0);
+    }
+  } finally {
+    catalog?.close();
+    await stopServer(server);
+    assert.ok(data.startsWith(resolve(tmpdir()) + sep + 'yangyu-visits-owner-test-'));
+    await rm(data, { recursive: true, force: true });
+  }
+});

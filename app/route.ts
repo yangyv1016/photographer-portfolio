@@ -49,8 +49,9 @@ export async function renderPortfolio(profile?: PortfolioProfile) {
   const notes = profile?.notes ?? [];
   const data = JSON.stringify({ ...gallery, publicId: profile?.publicId ?? "", showPhotoNames: profile?.showPhotoNames ?? false, notes }).replace(/</g, "\\u003c");
   const sidebars = profile?.visitStatistics && profile.publicId ? `<div class="portfolio-identity-rail">
-    <aside class="portfolio-widget portfolio-sticky-identity" aria-label="当前摄影师" tabindex="0" hidden>
-      ${profile.avatarUrl ? `<img src="${escapeHtml(profile.avatarUrl)}" alt="" loading="lazy" draggable="false">` : ''}
+    <aside class="portfolio-widget portfolio-sticky-identity${profile.coverUrl ? ' has-identity-cover' : ''}" aria-label="当前摄影师" tabindex="0" hidden>
+      ${profile.coverUrl ? `<div class="portfolio-identity-cover"><img src="${escapeHtml(profile.coverUrl)}?preview=1" alt="" loading="lazy" draggable="false"></div>` : ''}
+      ${profile.avatarUrl ? `<img class="portfolio-identity-avatar" src="${escapeHtml(profile.avatarUrl)}" alt="" loading="lazy" draggable="false">` : ''}
       <div class="portfolio-identity-copy"><p class="portfolio-identity-name">${escapeHtml(profile.name)}</p>${profile.bio ? `<p class="portfolio-identity-signature">${escapeHtml(profile.bio)}</p>` : ''}${profile.region ? `<p class="profile-region portfolio-identity-region"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg><span>${escapeHtml(profile.region)}</span></p>` : ''}${profile.introduction ? `<p class="portfolio-identity-introduction">${escapeHtml(profile.introduction)}</p>` : ''}</div>
     </aside>
   </div>

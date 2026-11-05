@@ -227,16 +227,31 @@ main img,.wall-photo,#lightbox-image{-webkit-user-drag:none;-webkit-touch-callou
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-width: thin;
-    padding: 1.1rem;
+    padding: 0;
+    background: linear-gradient(180deg, #f1f4f9, #fff);
+    box-shadow: 0 8px 24px #12213b08;
   }
-  .portfolio-sticky-identity img {
+  .portfolio-identity-cover {
+    flex-shrink: 0;
+    width: 100%;
+    height: 7.5rem;
+    overflow: hidden;
+    border-radius: 13px 13px 0 0;
+  }
+  .portfolio-identity-cover img { width: 100%; height: 100%; object-fit: cover; }
+  .portfolio-sticky-identity .portfolio-identity-avatar {
     flex-shrink: 0;
     width: 4rem;
     height: 4rem;
+    margin: 1.1rem 1.1rem 0;
+    border: 3px solid #fff;
     border-radius: 50%;
+    box-shadow: 0 2px 8px #12213b18;
   }
+  .has-identity-cover > .portfolio-identity-avatar { position: relative; margin-top: -3rem; }
   .portfolio-sticky-identity:focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }
-  .portfolio-identity-copy { min-width: 0; }
+  .portfolio-identity-copy { min-width: 0; width: 100%; padding: 0 1.1rem 1.1rem; }
+  .portfolio-identity-copy:first-child { padding-top: 1.1rem; }
   .portfolio-identity-name,
   .portfolio-identity-signature {
     overflow-wrap: anywhere;

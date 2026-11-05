@@ -1,6 +1,6 @@
 import { adminHtml } from '../../app/admin-html.ts';
 
-const platformAssetsVersion = '20261104-visits';
+const platformAssetsVersion = '20261105-ip-visits';
 
 export function escapeHtml(value) {
   return String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');

@@ -116,7 +116,7 @@ async function visits() {
   const admin = app.hasAttribute('data-visits-admin');
   body.innerHTML = `<section class="panel visits-panel" aria-labelledby="visits-title">
     <div class="panel-heading visits-heading">
-      <div><h2 id="visits-title">每日访问人数</h2><p>按北京时间统计，同一浏览器在同一日去重。</p></div>
+      <div><h2 id="visits-title">每日访问人数</h2><p id="visits-method">按北京时间统计，读取服务器保存的每日汇总。</p></div>
       <div class="visits-filters">
         ${admin ? '<label>统计范围<select id="visits-scope" disabled><option value="">全站</option></select></label>' : ''}
         <label>时间范围<select id="visits-range"><option value="7">最近 7 天</option><option value="30" selected>最近 30 天</option><option value="90">最近 90 天</option></select></label>
@@ -141,6 +141,7 @@ async function visits() {
   const refresh = body.querySelector('#visits-refresh');
   const today = body.querySelector('#visits-today');
   const todayDate = body.querySelector('#visits-today-date');
+  const method = body.querySelector('#visits-method');
   const total = body.querySelector('#visits-total');
   const status = body.querySelector('#visits-status');
   const chart = body.querySelector('#visits-chart');
@@ -182,12 +183,14 @@ async function visits() {
       }
       today.textContent = data.today.toLocaleString('zh-CN');
       todayDate.textContent = `${data.days.at(-1).date} · 北京时间`;
+      method.textContent = `按北京时间统计，今天按${data.todayDeduplication === 'ip' ? '独立 IP' : '浏览器'}去重，读取服务器保存的每日汇总。`;
       total.textContent = data.total.toLocaleString('zh-CN');
       series = data.days.filter(day => day.date >= data.availableFrom);
       chartWidth = 0;
       chart.hidden = details.hidden = !series.length;
       const messages = [];
-      if (scope && !accountId) messages.push('全站汇总会合并同一浏览器当天对多个主页的访问。');
+      messages.push(`${data.ipDedupFrom} 起按独立 IP 每日去重，此前历史数据保留浏览器统计口径。`);
+      if (scope && !accountId) messages.push('全站汇总会合并同一访客当天对多个主页的访问。');
       if (series.length < data.days.length) messages.push(`统计自 ${data.availableFrom} 开始，曲线展示已采集的日期。`);
       if (!data.total) messages.push('所选时段暂无访问记录。');
       status.textContent = messages.join(' ');

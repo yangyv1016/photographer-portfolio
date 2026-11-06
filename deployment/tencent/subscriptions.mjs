@@ -25,6 +25,18 @@ export function getSubscription(account, now = Date.now()) {
   };
 }
 
+// Both batch generation and order fulfillment insert this inside their own transaction.
+export function insertSubscriptionCode({ plan, durationDays, expiresAt, createdBy, note, now }) {
+  const code = `YY-${randomBytes(18).toString('base64url')}`;
+  const invitationId = randomUUID();
+  platformDatabase.prepare(`INSERT INTO invitations
+    (id,token_hash,hint,note,quota_bytes,created_by,created_at,expires_at,subscription_plan,duration_days)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`)
+    .run(invitationId, createHash('sha256').update(code).digest('hex'), `${code.slice(0, 7)}…${code.slice(-4)}`,
+      note, plan.quotaBytes, createdBy, new Date(now).toISOString(), expiresAt, plan.id, durationDays);
+  return { code, invitationId };
+}
+
 export function createSubscriptionCodes({ planId, count, validityDays, createdBy, note }) {
   const plan = subscriptionPlans.find(item => item.id === planId);
   if (!plan) throw new Error('Unknown subscription plan.');
@@ -33,17 +45,10 @@ export function createSubscriptionCodes({ planId, count, validityDays, createdBy
   const invitationIds = [];
   platformDatabase.exec('BEGIN IMMEDIATE');
   try {
-    const insert = platformDatabase.prepare(`INSERT INTO invitations
-      (id,token_hash,hint,note,quota_bytes,created_by,created_at,expires_at,subscription_plan,duration_days)
-      VALUES (?,?,?,?,?,?,?,?,?,?)`);
     for (let index = 0; index < count; index++) {
-      const code = `YY-${randomBytes(18).toString('base64url')}`;
-      const id = randomUUID();
-      insert.run(id, createHash('sha256').update(code).digest('hex'), `${code.slice(0, 7)}…${code.slice(-4)}`,
-        note, plan.quotaBytes, createdBy, new Date(now).toISOString(), validityDays ? now + validityDays * dayMilliseconds : null,
-        plan.id, plan.days);
-      codes.push(code);
-      invitationIds.push(id);
+      const issued = insertSubscriptionCode({ plan, durationDays: plan.days, expiresAt: validityDays ? now + validityDays * dayMilliseconds : null, createdBy, note, now });
+      codes.push(issued.code);
+      invitationIds.push(issued.invitationId);
     }
     platformDatabase.exec('COMMIT');
   } catch (error) { platformDatabase.exec('ROLLBACK'); throw error; }

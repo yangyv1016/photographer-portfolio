@@ -146,6 +146,33 @@ try {
   platformDatabase.exec('COMMIT');
 } catch (error) { platformDatabase.exec('ROLLBACK'); throw error; }
 
+platformDatabase.exec('BEGIN IMMEDIATE');
+try {
+  if (!platformDatabase.prepare("SELECT name FROM platform_migrations WHERE name='afdian-order-deliveries'").get()) {
+    platformDatabase.exec(`CREATE TABLE afdian_order_deliveries (
+      out_trade_no TEXT PRIMARY KEY,
+      buyer_id TEXT NOT NULL,
+      afdian_plan_id TEXT NOT NULL,
+      subscription_plan TEXT NOT NULL,
+      order_months INTEGER NOT NULL,
+      paid_amount_cents INTEGER NOT NULL,
+      invitation_id TEXT NOT NULL UNIQUE REFERENCES invitations(id),
+      encrypted_code TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('pending','sending','sent')),
+      lease_token TEXT,
+      lease_until INTEGER,
+      next_attempt_at INTEGER NOT NULL DEFAULT 0,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      sent_at TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    INSERT INTO platform_migrations VALUES ('afdian-order-deliveries');`);
+  }
+  platformDatabase.exec('COMMIT');
+} catch (error) { platformDatabase.exec('ROLLBACK'); throw error; }
+
 export function getPublicAccount(publicId) {
   return platformDatabase.prepare('SELECT * FROM users WHERE (public_id=? OR id=(SELECT user_id FROM public_id_aliases WHERE public_id=?)) AND is_active=1 AND deleted_at IS NULL').get(publicId, publicId);
 }

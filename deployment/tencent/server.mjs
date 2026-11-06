@@ -8,12 +8,13 @@ import { getAccountGallery, getGalleryNotes, withAccount, closeDatabases } from 
 import { getSession, requireSession, login, logout } from './auth.mjs';
 import { platformDatabase, getPublicAccount } from './platform-database.mjs';
 import { platformApi, accountUsage, backfillStorage } from './platform-api.mjs';
-import { directoryPage, workspacePage, photoWorkspace, subscriptionExpiredPage } from './platform-html.mjs';
+import { directoryPage, workspacePage, photoWorkspace, subscriptionExpiredPage, claimDeliveryPage } from './platform-html.mjs';
 import { isSubscriptionExpired } from './subscriptions.mjs';
 import { objectResponse } from './storage.mjs';
 import { previewResponse } from './preview.mjs';
 import { recordPublicVisit } from './visit-statistics.mjs';
 import { receiveAfdianWebhook, readAfdianWebhookReceipts } from './afdian-webhook.mjs';
+import { claimAfdianOrder, deliveryConfigurationStatus } from './afdian-delivery.mjs';
 import { uploadPart, finishUpload, startUpload } from './uploads.mjs';
 import { renderPortfolio } from '../../app/route.ts';
 import { renderAlbum } from '../../app/album.ts';
@@ -55,6 +56,12 @@ async function route(request, clientIp) {
   if (path === '/login' || path === '/admin/login') return login(request, clientIp);
   if (path === '/register') return login(request, clientIp, true);
   if ((path === '/logout' || path === '/admin/logout') && request.method === 'POST') return logout(request);
+  if (path === '/claim' && request.method === 'GET') return new Response(claimDeliveryPage(), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' } });
+  if (path === '/api/integrations/afdian/delivery/status') {
+    if (request.method !== 'GET') return Response.json({ error: '不支持此操作。' }, { status: 405, headers: { Allow: 'GET' } });
+    return Response.json(deliveryConfigurationStatus());
+  }
+  if (path === '/api/integrations/afdian/delivery') return claimAfdianOrder(request, clientIp);
   if (path === '/api/integrations/afdian/webhook') return receiveAfdianWebhook(request, clientIp);
   const visitPage = path.match(/^\/api\/visits\/([a-z][a-z0-9_-]{2,23})$/);
   if (visitPage) return recordPublicVisit(request, visitPage[1], clientIp);

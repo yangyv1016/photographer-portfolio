@@ -1,6 +1,6 @@
 import { adminHtml } from '../../app/admin-html.ts';
 
-const platformAssetsVersion = '20261107-subscription';
+const platformAssetsVersion = '20261107-order-claim';
 
 export function escapeHtml(value) {
   return String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
@@ -18,7 +18,11 @@ export function authPage(mode, error = '') {
     ${registering ? '<p class="field-note">3–24 位小写字母、数字、下划线或连字符；也将用于个人主页地址。</p>' : ''}
     <label>密码<input name="password" type="password" autocomplete="${registering ? 'new-password' : 'current-password'}" ${registering ? 'minlength="12"' : ''} maxlength="256" required></label>
     ${registering ? '<label>确认密码<input name="passwordConfirmation" type="password" autocomplete="new-password" minlength="12" maxlength="256" required></label><p class="field-note">密码至少 12 个字符。</p>' : ''}
-    <button class="button primary full" type="submit">${registering ? '注册并进入工作台' : '登录'}</button></form><p class="auth-switch">${registering ? '已有账户？<a href="/login">去登录</a>' : '获得了邀请码？<a href="/register">注册账户</a>'}</p></section><a class="quiet-link" href="/">返回摄影师目录 ↗</a></main>`);
+    <button class="button primary full" type="submit">${registering ? '注册并进入工作台' : '登录'}</button></form><p class="auth-switch">${registering ? '已有账户？<a href="/login">去登录</a>' : '获得了邀请码？<a href="/register">注册账户</a>'}</p><p class="auth-claim-link"><a href="/claim">付款后领取兑换码 ↗</a></p></section><a class="quiet-link" href="/">返回摄影师目录 ↗</a></main>`);
+}
+
+export function claimDeliveryPage() {
+  return documentPage('领取订阅兑换码', `<main class="auth-layout claim-layout"><a class="platform-brand" href="/">摄影师作品展示<span>PHOTOGRAPHERS</span></a><section class="auth-card claim-card" aria-labelledby="claim-title"><span class="eyebrow">订单发货</span><h1 id="claim-title">领取你的订阅兑换码</h1><p class="muted">填写爱发电订单号，核验通过后，兑换码会发送到下单账号的爱发电私信。</p><p id="afdian-claim-status" class="claim-status" role="status" aria-live="polite" data-kind="pending">正在检查发货通道…</p><form id="afdian-claim-form"><label for="afdian-order-number">爱发电订单号<input id="afdian-order-number" name="orderNo" inputmode="numeric" autocomplete="off" spellcheck="false" maxlength="100" placeholder="从爱发电订单详情复制完整订单号" disabled required></label><p class="field-note">请使用购买月卡、季卡或年卡时的订单号。</p><button id="afdian-claim-submit" class="button primary full" type="submit" disabled>触发发货</button></form><ol class="claim-steps" aria-label="领取步骤"><li><span aria-hidden="true">1</span><div><strong>复制订单号</strong><p>在爱发电的订单详情中找到对应订单。</p></div></li><li><span aria-hidden="true">2</span><div><strong>触发发货</strong><p>提交后核验付款与套餐，重复提交不会生成新的兑换码。</p></div></li><li><span aria-hidden="true">3</span><div><strong>查看爱发电私信</strong><p>登录下单的爱发电账号查看兑换码，再回到本站注册或续期。</p></div></li></ol><p class="claim-privacy">兑换码仅发送到购买账号的私信，不会显示在这个页面。无需先注册本站账户。</p><div class="claim-links"><a class="button secondary" href="/register">用码注册</a><a class="button secondary" href="/dashboard/subscription">已有账号续期</a></div></section><a class="quiet-link" href="/">返回摄影师目录 ↗</a></main><script type="module" src="/afdian-claim.js?v=20261107-order-claim"></script>`, false, true);
 }
 
 export function sidebar(account, active) {

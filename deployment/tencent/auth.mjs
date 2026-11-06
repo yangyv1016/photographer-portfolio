@@ -8,7 +8,7 @@ import { applySubscriptionInvitation } from './subscriptions.mjs';
 const cookieName = 'yangyu_admin';
 const sessionSeconds = 12 * 60 * 60;
 const attempts = new Map();
-export const reservedIds = new Set(['admin','login','register','logout','dashboard','api','assets','healthz','reset-password','photographers']);
+export const reservedIds = new Set(['admin','login','register','logout','dashboard','api','assets','healthz','reset-password','photographers','claim']);
 export const privateHeaders = { 'Cache-Control': 'private, no-store', 'X-Robots-Tag': 'noindex, nofollow' };
 
 function sessionHash(request) {

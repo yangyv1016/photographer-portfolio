@@ -25,21 +25,28 @@ export function getSubscription(account, now = Date.now()) {
   };
 }
 
+export function calculateSubscriptionExpiry(durationDays, currentExpiresAt, now) {
+  const duration = durationDays * dayMilliseconds;
+  const expiresAt = Math.max(now, currentExpiresAt ?? now) + duration;
+  return Number.isSafeInteger(duration) && Number.isSafeInteger(expiresAt) && expiresAt <= 8640000000000000 ? expiresAt : null;
+}
+
 // Both batch generation and order fulfillment insert this inside their own transaction.
-export function insertSubscriptionCode({ plan, durationDays, expiresAt, createdBy, note, now }) {
+export function insertSubscriptionCode({ plan, durationDays = plan.days, quotaBytes = plan.quotaBytes, expiresAt, createdBy, note, now }) {
   const code = `YY-${randomBytes(18).toString('base64url')}`;
   const invitationId = randomUUID();
   platformDatabase.prepare(`INSERT INTO invitations
     (id,token_hash,hint,note,quota_bytes,created_by,created_at,expires_at,subscription_plan,duration_days)
     VALUES (?,?,?,?,?,?,?,?,?,?)`)
     .run(invitationId, createHash('sha256').update(code).digest('hex'), `${code.slice(0, 7)}…${code.slice(-4)}`,
-      note, plan.quotaBytes, createdBy, new Date(now).toISOString(), expiresAt, plan.id, durationDays);
+      note, quotaBytes, createdBy, new Date(now).toISOString(), expiresAt, plan.id, durationDays);
   return { code, invitationId };
 }
 
-export function createSubscriptionCodes({ planId, count, validityDays, createdBy, note }) {
-  const plan = subscriptionPlans.find(item => item.id === planId);
-  if (!plan) throw new Error('Unknown subscription plan.');
+export function createSubscriptionCodes({ planId, count, validityDays, durationDays, quotaBytes, createdBy, note }) {
+  const preset = subscriptionPlans.find(item => item.id === planId);
+  if (!preset) throw new Error('Unknown subscription plan.');
+  const plan = { ...preset, days: durationDays ?? preset.days, quotaBytes: quotaBytes ?? preset.quotaBytes };
   const now = Date.now();
   const codes = [];
   const invitationIds = [];
@@ -63,7 +70,8 @@ export function readSubscriptionInvitation(code, now) {
 
 // Registration and renewal both call this inside their invitation-consumption transaction.
 export function applySubscriptionInvitation(account, invitation, now) {
-  const expiresAt = Math.max(now, account.subscription_expires_at ?? now) + invitation.duration_days * dayMilliseconds;
+  const expiresAt = calculateSubscriptionExpiry(invitation.duration_days, account.subscription_expires_at, now);
+  if (expiresAt === null) throw new RangeError('Subscription expiry exceeds supported dates.');
   platformDatabase.prepare(`UPDATE users SET subscription_plan=?,subscription_expires_at=?,quota_bytes=?,subscription_reminded_on=NULL WHERE id=?`)
     .run(invitation.subscription_plan, expiresAt, invitation.quota_bytes, account.id);
   platformDatabase.prepare(`INSERT INTO subscription_redemptions

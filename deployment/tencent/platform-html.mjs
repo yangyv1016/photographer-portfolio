@@ -1,6 +1,6 @@
 import { adminHtml } from '../../app/admin-html.ts';
 
-const platformAssetsVersion = '20261107-directory-listing';
+const platformAssetsVersion = '20261107-admin-subscriptions';
 
 export function escapeHtml(value) {
   return String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');

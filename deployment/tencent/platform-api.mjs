@@ -8,12 +8,15 @@ import { env, objectHead } from './storage.mjs';
 import { dataDirectory, storageBackend } from './config.mjs';
 import { verifyPassword, hashPassword, reservedIds } from './auth.mjs';
 import { visitStatistics } from './visit-statistics.mjs';
-import { subscriptionPlans, getSubscription, isSubscriptionExpired, createSubscriptionCodes, readSubscriptionInvitation, applySubscriptionInvitation } from './subscriptions.mjs';
+import { subscriptionPlans, getSubscription, isSubscriptionExpired, createSubscriptionCodes, readSubscriptionInvitation, applySubscriptionInvitation, calculateSubscriptionExpiry } from './subscriptions.mjs';
 import { DELETE as cancelUpload } from '../../app/api/admin/uploads/route.ts';
 
 export const uploadReservations = new Map();
 const profileImageUploads = new Set();
 const quotaSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+const subscriptionPlanSchema = z.enum(['monthly','quarterly','yearly']);
+const subscriptionExpirySchema = z.number().int().min(-8640000000000000).max(8640000000000000);
+const durationDaysSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER).refine(days => calculateSubscriptionExpiry(days, null, Date.now()) !== null);
 const noteTitleSchema = z.string().trim().min(1).max(80);
 const noteContentSchema = z.string().min(1).max(20000).refine(content => content.trim().length > 0);
 
@@ -74,6 +77,10 @@ export async function platformApi(request, account) {
       if (!current) { platformDatabase.exec('ROLLBACK'); return Response.json({ error: '请重新登录。' }, { status: 401 }); }
       const invitation = readSubscriptionInvitation(parsed.data.code, now);
       if (!invitation) { platformDatabase.exec('ROLLBACK'); return Response.json({ error: '订阅兑换码不可用、已使用或已过期。' }, { status: 409 }); }
+      if (calculateSubscriptionExpiry(invitation.duration_days, current.subscription_expires_at, now) === null) {
+        platformDatabase.exec('ROLLBACK');
+        return Response.json({ error: '续期后的到期时间超出支持范围，请联系管理员。' }, { status: 409 });
+      }
       applySubscriptionInvitation(current, invitation, now);
       platformDatabase.prepare('UPDATE invitations SET used_at=?,used_by=? WHERE id=?').run(new Date(now).toISOString(), current.id, invitation.id);
       updated = platformDatabase.prepare('SELECT * FROM users WHERE id=?').get(current.id);
@@ -91,10 +98,12 @@ export async function platformApi(request, account) {
     if (!invitation) return Response.json({ error: '订阅兑换码不可用、已使用或已过期。' }, { status: 409 });
     const current = platformDatabase.prepare('SELECT * FROM users WHERE id=?').get(account.id);
     const plan = subscriptionPlans.find(item => item.id === invitation.subscription_plan);
+    const nextExpiresAt = calculateSubscriptionExpiry(invitation.duration_days, current.subscription_expires_at, now);
+    if (nextExpiresAt === null) return Response.json({ error: '续期后的到期时间超出支持范围，请联系管理员。' }, { status: 409 });
     return Response.json({
       plan: { ...plan, days: invitation.duration_days, quotaBytes: invitation.quota_bytes },
       subscription: getSubscription(current, now), usage: accountUsage(current),
-      nextExpiresAt: Math.max(now, current.subscription_expires_at ?? now) + invitation.duration_days * 86400000,
+      nextExpiresAt,
     });
   }
   if (path === '/api/profile/subscription/reminder') {
@@ -300,15 +309,24 @@ export async function platformApi(request, account) {
   if (!path.startsWith('/api/platform/')) return Response.json({ error: '接口不存在。' }, { status: 404 });
   if (account.role !== 'admin') return Response.json({ error: '仅平台管理员可访问。' }, { status: 403 });
   if (path === '/api/platform/accounts' && request.method === 'GET') {
-    return Response.json({ accounts: platformDatabase.prepare('SELECT * FROM users ORDER BY created_at DESC,id DESC').all().map(user=>({ ...publicAccount(user), ...accountUsage(user), subscription: getSubscription(user) })) });
+    return Response.json({ accounts: platformDatabase.prepare('SELECT * FROM users ORDER BY created_at DESC,id DESC').all().map(user=>({ ...publicAccount(user), ...accountUsage(user), subscription: getSubscription(user) })), plans: subscriptionPlans });
   }
   if (path === '/api/platform/accounts' && request.method === 'PATCH') {
-    const parsed = z.object({ id: z.number().int().positive(), action: z.enum(['enable','disable','trash','restore','quota']), quotaBytes: quotaSchema.optional() }).safeParse(await request.json());
-    if (!parsed.success || (parsed.data.action === 'quota' && parsed.data.quotaBytes === undefined)) return Response.json({ error: '账户操作无效，分配容量必须大于 0。' }, { status: 400 });
-    const { id, action, quotaBytes } = parsed.data;
+    const parsed = z.object({ id: z.number().int().positive(), action: z.enum(['enable','disable','trash','restore','quota','configure']), quotaBytes: quotaSchema.optional(), subscriptionPlan: subscriptionPlanSchema.nullable().optional(), subscriptionExpiresAt: subscriptionExpirySchema.nullable().optional() }).safeParse(await request.json());
+    if (!parsed.success || (parsed.data.action === 'quota' && parsed.data.quotaBytes === undefined)
+      || (parsed.data.action === 'configure' && (parsed.data.quotaBytes === undefined || parsed.data.subscriptionPlan === undefined || parsed.data.subscriptionExpiresAt === undefined
+        || (parsed.data.subscriptionPlan === null) !== (parsed.data.subscriptionExpiresAt === null)))) return Response.json({ error: '账户操作无效，请检查套餐、到期时间和容量；分配容量必须大于 0，长期账户的套餐和到期时间均应为空。' }, { status: 400 });
+    const { id, action, quotaBytes, subscriptionPlan, subscriptionExpiresAt } = parsed.data;
     const user = platformDatabase.prepare('SELECT * FROM users WHERE id=?').get(id);
     if (!user) return Response.json({ error: '账户不存在。' }, { status: 404 });
     if (user.role === 'admin' && ['disable','trash'].includes(action)) return Response.json({ error: '不能停用或移除平台管理员。' }, { status: 409 });
+    if (action === 'configure') {
+      if (user.role === 'admin' && subscriptionPlan !== null) return Response.json({ error: '平台管理员免订阅，不能设置有限期套餐。' }, { status: 409 });
+      platformDatabase.prepare(`UPDATE users SET quota_bytes=?,subscription_reminded_on=CASE
+        WHEN subscription_plan IS ? AND subscription_expires_at IS ? THEN subscription_reminded_on ELSE NULL END,
+        subscription_plan=?,subscription_expires_at=? WHERE id=?`)
+        .run(quotaBytes,subscriptionPlan,subscriptionExpiresAt,subscriptionPlan,subscriptionExpiresAt,id);
+    }
     if (action === 'quota') platformDatabase.prepare('UPDATE users SET quota_bytes=? WHERE id=?').run(quotaBytes,id);
     if (action === 'enable') platformDatabase.prepare('UPDATE users SET is_active=1 WHERE id=? AND deleted_at IS NULL').run(id);
     if (action === 'disable') platformDatabase.prepare('UPDATE users SET is_active=0 WHERE id=?').run(id);
@@ -327,10 +345,10 @@ export async function platformApi(request, account) {
     return Response.json({ invitations: rows, plans: subscriptionPlans, defaultQuotaBytes, page, total });
   }
   if (path === '/api/platform/invitations' && request.method === 'POST') {
-    const parsed = z.object({ count: z.number().int().min(1).max(50), days: z.number().int().min(0).max(90), quotaBytes: quotaSchema.optional(), note: z.string().trim().max(80), planId: z.enum(['monthly','quarterly','yearly']).optional() }).safeParse(await request.json());
-    if (!parsed.success || (!parsed.data.planId && parsed.data.quotaBytes === undefined)) return Response.json({ error: '请检查数量、有效期、套餐和备注，新账户容量必须大于 0。' }, { status: 400 });
-    const { count, days, quotaBytes, note, planId } = parsed.data;
-    if (planId) return Response.json(createSubscriptionCodes({ planId, count, validityDays: days, createdBy: account.id, note }), { status: 201 });
+    const parsed = z.object({ count: z.number().int().min(1).max(50), days: z.number().int().min(0).max(90), quotaBytes: quotaSchema.optional(), durationDays: durationDaysSchema.optional(), note: z.string().trim().max(80), planId: subscriptionPlanSchema.optional() }).safeParse(await request.json());
+    if (!parsed.success || (!parsed.data.planId && (parsed.data.quotaBytes === undefined || parsed.data.durationDays !== undefined))) return Response.json({ error: '请检查数量、兑换期限、订阅天数、套餐和备注；订阅天数必须是可表示的正整数，新账户容量必须大于 0。' }, { status: 400 });
+    const { count, days, quotaBytes, durationDays, note, planId } = parsed.data;
+    if (planId) return Response.json(createSubscriptionCodes({ planId, count, validityDays: days, durationDays, quotaBytes, createdBy: account.id, note }), { status: 201 });
     const now = Date.now();
     const codes = [];
     platformDatabase.exec('BEGIN IMMEDIATE');

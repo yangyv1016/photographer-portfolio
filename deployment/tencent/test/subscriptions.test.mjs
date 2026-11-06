@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, resolve, sep } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -69,9 +69,9 @@ test('Subscription codes activate exact fixed periods, replace quotas and consum
     await start();
     catalog = new DatabaseSync(resolve(data, 'platform.sqlite'));
     let adminCookie = await login('admin');
-    const generate = async (planId, count = 1, days = 0) => {
+    const generate = async (planId, count = 1, days = 0, rights = {}) => {
       const response = await request('/api/platform/invitations', {
-        method: 'POST', headers: headers(adminCookie), body: JSON.stringify({ planId, count, days, quotaBytes: 1, note: 'Subscription test' }),
+        method: 'POST', headers: headers(adminCookie), body: JSON.stringify({ planId, count, days, note: 'Subscription test', ...rights }),
       });
       assert.equal(response.status, 201);
       return response.json();
@@ -91,7 +91,7 @@ test('Subscription codes activate exact fixed periods, replace quotas and consum
     let paidCookie = await login('paid-user');
     let paid = await subscription(paidCookie);
     assert.equal(paid.subscription.expiresAt, initialTime + 30 * day);
-    assert.equal(paid.subscription.quotaBytes, 5 * gib, 'Caller quota overrides cannot alter paid plan entitlements');
+    assert.equal(paid.subscription.quotaBytes, 5 * gib, 'Omitted custom rights retain the selected plan defaults');
     assert.equal(paid.subscription.planId, 'monthly');
     const account = catalog.prepare("SELECT * FROM users WHERE login_id='paid-user'").get();
     const originalStorageId = account.storage_id;
@@ -184,6 +184,111 @@ test('Subscription codes activate exact fixed periods, replace quotas and consum
     assert.equal(catalog.prepare('SELECT storage_id FROM users WHERE id=?').get(account.id).storage_id, originalStorageId);
     assert.equal(gallery.prepare('SELECT COUNT(*) AS count FROM photos WHERE id=?').get(photoId).count, 1);
     assert.equal((await subscription(adminCookie)).subscription.permanent, true);
+
+    const invitationsBefore = catalog.prepare('SELECT COUNT(*) AS count FROM invitations').get().count;
+    for (const invalid of [
+      { durationDays: 0 }, { durationDays: -1 }, { durationDays: 1.5 }, { durationDays: '45' }, { durationDays: null },
+      { durationDays: Number.MAX_SAFE_INTEGER }, { durationDays: 100000000 },
+      { quotaBytes: 0 }, { quotaBytes: -1 }, { quotaBytes: 1.5 }, { quotaBytes: '1024' }, { quotaBytes: Number.MAX_SAFE_INTEGER + 1 },
+      { planId: undefined, durationDays: 45, quotaBytes: gib },
+    ]) {
+      assert.equal((await request('/api/platform/invitations', {
+        method: 'POST', headers: headers(adminCookie),
+        body: JSON.stringify({ planId: 'monthly', count: 1, days: 0, note: 'Invalid custom rights', ...invalid }),
+      })).status, 400);
+    }
+    assert.equal(catalog.prepare('SELECT COUNT(*) AS count FROM invitations').get().count, invitationsBefore);
+    const customTime = initialTime + 8 * day;
+    const daysOnly = await generate('monthly', 1, 0, { durationDays: 3660 });
+    assert.equal(daysOnly.plan.days, 3660); assert.equal(daysOnly.plan.quotaBytes, 5 * gib);
+    const quotaOnly = await generate('quarterly', 1, 0, { quotaBytes: 13 * gib });
+    assert.equal(quotaOnly.plan.days, 90); assert.equal(quotaOnly.plan.quotaBytes, 13 * gib);
+    const customMonthly = await generate('monthly', 2, 2, { durationDays: 45, quotaBytes: 12 * gib });
+    assert.equal(customMonthly.plan.days, 45); assert.equal(customMonthly.plan.quotaBytes, 12 * gib);
+    const customList = await (await request('/api/platform/invitations', { headers: headers(adminCookie) })).json();
+    const customListing = customList.invitations.find(invitation => invitation.id === customMonthly.invitationIds[0]);
+    assert.equal(customListing.durationDays, 45); assert.equal(customListing.quotaBytes, 12 * gib);
+    assert.equal(customListing.expiresAt, customTime + 2 * day);
+    assert.deepEqual(customList.plans, catalogPlans, 'Issuing custom rights must not mutate the shared plan catalog');
+    assert.equal((await register('custom-user', customMonthly.codes[0])).status, 303);
+    const customCookie = await login('custom-user');
+    let customSubscription = await subscription(customCookie);
+    assert.equal(customSubscription.subscription.expiresAt, customTime + 45 * day);
+    assert.equal(customSubscription.subscription.quotaBytes, 12 * gib);
+    const customQuarter = await generate('quarterly', 1, 0, { durationDays: 13, quotaBytes: 14 * gib });
+    const customPreview = await exchange(customCookie, customQuarter.codes[0], true);
+    assert.equal(customPreview.status, 200);
+    const previewRights = await customPreview.json();
+    assert.equal(previewRights.plan.days, 13); assert.equal(previewRights.plan.quotaBytes, 14 * gib);
+    assert.equal(previewRights.nextExpiresAt, customTime + 58 * day);
+    assert.equal((await exchange(customCookie, customQuarter.codes[0])).status, 200);
+    customSubscription = await subscription(customCookie);
+    assert.equal(customSubscription.subscription.expiresAt, customTime + 58 * day);
+    assert.equal(customSubscription.subscription.quotaBytes, 14 * gib);
+    const customAccount = catalog.prepare("SELECT * FROM users WHERE login_id='custom-user'").get();
+    const customRedemption = catalog.prepare('SELECT * FROM subscription_redemptions WHERE invitation_id=?').get(customQuarter.invitationIds[0]);
+    assert.equal(customRedemption.duration_days, 13); assert.equal(customRedemption.quota_bytes, 14 * gib);
+    assert.equal((await request('/api/profile/listing', { method: 'PATCH', headers: headers(customCookie), body: JSON.stringify({ listed: false }) })).status, 200);
+    catalog.prepare('UPDATE users SET subscription_reminded_on=? WHERE id=?').run('2026-11-15', customAccount.id);
+    const beforeConfiguration = catalog.prepare('SELECT * FROM users WHERE id=?').get(customAccount.id);
+    const beforeSessions = catalog.prepare('SELECT * FROM sessions WHERE user_id=? ORDER BY token_hash').all(customAccount.id);
+    const customGalleryPath = resolve(data, 'photographers', customAccount.storage_id, 'gallery.sqlite');
+    const beforeGallery = await stat(customGalleryPath);
+    const configure = (cookie, fields) => request('/api/platform/accounts', { method: 'PATCH', headers: headers(cookie), body: JSON.stringify(fields) });
+    const configuration = { id: customAccount.id, action: 'configure', quotaBytes: 15 * gib, subscriptionPlan: 'yearly', subscriptionExpiresAt: customTime + 6 * day };
+    assert.equal((await request('/api/platform/accounts', { method: 'PATCH', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify(configuration) })).status, 401);
+    assert.equal((await configure(customCookie, configuration)).status, 403);
+    assert.equal((await request('/api/platform/accounts', { method: 'PATCH', headers: { ...headers(adminCookie), Origin: 'https://attacker.test' }, body: JSON.stringify(configuration) })).status, 403);
+    for (const invalid of [
+      { quotaBytes: undefined }, { quotaBytes: 0 }, { quotaBytes: -1 }, { quotaBytes: 1.5 },
+      { subscriptionPlan: undefined }, { subscriptionPlan: 'unknown' }, { subscriptionPlan: null },
+      { subscriptionExpiresAt: undefined }, { subscriptionExpiresAt: null }, { subscriptionExpiresAt: 'tomorrow' },
+      { subscriptionExpiresAt: customTime + 0.5 }, { subscriptionExpiresAt: 8640000000000001 }, { subscriptionExpiresAt: Number.MAX_SAFE_INTEGER + 1 },
+    ]) assert.equal((await configure(adminCookie, { ...configuration, ...invalid })).status, 400);
+    assert.deepEqual(catalog.prepare('SELECT * FROM users WHERE id=?').get(customAccount.id), beforeConfiguration);
+    assert.equal((await configure(adminCookie, configuration)).status, 200);
+    assert.deepEqual({ ...catalog.prepare('SELECT * FROM users WHERE id=?').get(customAccount.id) }, {
+      ...beforeConfiguration, quota_bytes: 15 * gib, subscription_plan: 'yearly', subscription_expires_at: customTime + 6 * day, subscription_reminded_on: null,
+    });
+    assert.deepEqual(catalog.prepare('SELECT * FROM sessions WHERE user_id=? ORDER BY token_hash').all(customAccount.id), beforeSessions);
+    assert.equal((await stat(customGalleryPath)).ino, beforeGallery.ino);
+    const configuredAccounts = await (await request('/api/platform/accounts', { headers: headers(adminCookie) })).json();
+    assert.deepEqual(configuredAccounts.plans, catalogPlans);
+    assert.equal(configuredAccounts.accounts.find(item => item.id === customAccount.id).listed, false);
+    assert.equal((await request('/custom-user')).status, 200);
+    assert.ok(!(await (await request('/')).text()).includes('href="/custom-user"'));
+    assert.equal((await reminder(customCookie)).showReminder, true, 'Changing subscription settings permits a new expiry reminder');
+    const remindedOn = catalog.prepare('SELECT subscription_reminded_on FROM users WHERE id=?').get(customAccount.id).subscription_reminded_on;
+    assert.equal((await configure(adminCookie, { ...configuration, quotaBytes: 16 * gib })).status, 200);
+    assert.equal(catalog.prepare('SELECT subscription_reminded_on FROM users WHERE id=?').get(customAccount.id).subscription_reminded_on, remindedOn);
+    assert.equal((await reminder(customCookie)).showReminder, false, 'Changing only capacity must preserve the reminder claim');
+    assert.equal((await configure(adminCookie, { ...configuration, subscriptionPlan: 'monthly' })).status, 200);
+    assert.equal(catalog.prepare('SELECT subscription_reminded_on FROM users WHERE id=?').get(customAccount.id).subscription_reminded_on, null);
+    assert.equal((await reminder(customCookie)).showReminder, true);
+    assert.equal((await configure(adminCookie, { ...configuration, subscriptionExpiresAt: customTime - 1 })).status, 200);
+    assert.equal((await subscription(customCookie)).subscription.expired, true);
+    assert.equal((await request('/custom-user')).status, 403);
+    assert.equal((await request('/api/session', { headers: headers(customCookie) })).status, 200, 'Configuration must not invalidate existing sessions');
+    const permanentConfiguration = { ...configuration, quotaBytes: 17 * gib, subscriptionPlan: null, subscriptionExpiresAt: null };
+    assert.equal((await configure(adminCookie, permanentConfiguration)).status, 200);
+    customSubscription = await subscription(customCookie);
+    assert.equal(customSubscription.subscription.permanent, true);
+    assert.equal(customSubscription.subscription.expiresAt, null); assert.equal(customSubscription.subscription.planId, null);
+    assert.equal((await request('/custom-user')).status, 200);
+    assert.equal((await configure(adminCookie, { ...configuration, subscriptionExpiresAt: 8640000000000000 })).status, 200);
+    assert.equal((await exchange(customCookie, customMonthly.codes[1], true)).status, 409);
+    assert.equal((await exchange(customCookie, customMonthly.codes[1])).status, 409);
+    assert.equal(catalog.prepare('SELECT used_at FROM invitations WHERE id=?').get(customMonthly.invitationIds[1]).used_at, null);
+    assert.equal(catalog.prepare('SELECT subscription_expires_at FROM users WHERE id=?').get(customAccount.id).subscription_expires_at, 8640000000000000);
+    assert.equal((await configure(adminCookie, permanentConfiguration)).status, 200);
+    assert.equal(catalog.prepare('SELECT listed FROM users WHERE id=?').get(customAccount.id).listed, 0);
+    assert.equal(catalog.prepare('SELECT storage_id FROM users WHERE id=?').get(customAccount.id).storage_id, customAccount.storage_id);
+    const administrator = (await (await request('/api/session', { headers: headers(adminCookie) })).json()).account;
+    const beforeAdministrator = catalog.prepare('SELECT * FROM users WHERE id=?').get(administrator.id);
+    assert.equal((await configure(adminCookie, { ...configuration, id: administrator.id })).status, 409);
+    assert.deepEqual(catalog.prepare('SELECT * FROM users WHERE id=?').get(administrator.id), beforeAdministrator);
+    assert.equal((await configure(adminCookie, { ...permanentConfiguration, id: administrator.id, quotaBytes: 9 * gib })).status, 200);
+    assert.deepEqual({ ...catalog.prepare('SELECT * FROM users WHERE id=?').get(administrator.id) }, { ...beforeAdministrator, quota_bytes: 9 * gib });
   } finally {
     gallery?.close(); catalog?.close(); await stop();
     assert.ok(data.startsWith(resolve(tmpdir()) + sep + 'yangyu-subscriptions-test-'));

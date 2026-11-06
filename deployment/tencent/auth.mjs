@@ -3,7 +3,7 @@ import { platformDatabase } from './platform-database.mjs';
 import { getCurrentAccount, createAccountGallery } from './database.mjs';
 import { origin } from './config.mjs';
 import { authPage } from './platform-html.mjs';
-import { applySubscriptionInvitation } from './subscriptions.mjs';
+import { applySubscriptionInvitation, calculateSubscriptionExpiry } from './subscriptions.mjs';
 
 const cookieName = 'yangyu_admin';
 const sessionSeconds = 12 * 60 * 60;
@@ -92,7 +92,7 @@ export async function login(request, clientIp, registering = false) {
         platformDatabase.exec('BEGIN IMMEDIATE');
         try {
           const code = platformDatabase.prepare('SELECT * FROM invitations WHERE token_hash=? AND used_at IS NULL AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>?)').get(hash, now);
-          if (!code) error = '邀请码不可用或已过期。';
+          if (!code || (code.subscription_plan !== null && calculateSubscriptionExpiry(code.duration_days, null, now) === null)) error = '邀请码不可用或已过期。';
           else if (platformDatabase.prepare('SELECT id FROM users WHERE login_id=? OR public_id=? UNION ALL SELECT user_id FROM public_id_aliases WHERE public_id=?').get(publicId, publicId, publicId)) { error = '这个登录 ID 已被使用，请更换。'; status = 409; }
           else {
             const created = platformDatabase.prepare("INSERT INTO users (login_id,public_id,storage_id,password_hash,display_name,site_name,role,quota_bytes,created_at) VALUES (?,?,?,?,?,?,'photographer',?,?)")

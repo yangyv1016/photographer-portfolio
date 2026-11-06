@@ -13,6 +13,7 @@ import { isSubscriptionExpired } from './subscriptions.mjs';
 import { objectResponse } from './storage.mjs';
 import { previewResponse } from './preview.mjs';
 import { recordPublicVisit } from './visit-statistics.mjs';
+import { receiveAfdianWebhook, readAfdianWebhookReceipts } from './afdian-webhook.mjs';
 import { uploadPart, finishUpload, startUpload } from './uploads.mjs';
 import { renderPortfolio } from '../../app/route.ts';
 import { renderAlbum } from '../../app/album.ts';
@@ -54,6 +55,7 @@ async function route(request, clientIp) {
   if (path === '/login' || path === '/admin/login') return login(request, clientIp);
   if (path === '/register') return login(request, clientIp, true);
   if ((path === '/logout' || path === '/admin/logout') && request.method === 'POST') return logout(request);
+  if (path === '/api/integrations/afdian/webhook') return receiveAfdianWebhook(request, clientIp);
   const visitPage = path.match(/^\/api\/visits\/([a-z][a-z0-9_-]{2,23})$/);
   if (visitPage) return recordPublicVisit(request, visitPage[1], clientIp);
   if (path === '/' && request.method === 'GET') {
@@ -74,6 +76,11 @@ async function route(request, clientIp) {
       }
       const workspace = new Map([['/dashboard/profile','profile'],['/dashboard/notes','notes'],['/dashboard/visits','visits'],['/dashboard/subscription','subscription'],['/admin','overview'],['/admin/accounts','accounts'],['/admin/invitations','invitations']]);
       if (workspace.has(path) && request.method === 'GET') return new Response(workspacePage(account,workspace.get(path)), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+      if (path === '/api/platform/afdian/receipts') {
+        if (account.role !== 'admin') return Response.json({ error: '仅平台管理员可访问。' }, { status: 403 });
+        if (request.method !== 'GET') return Response.json({ error: '不支持此操作。' }, { status: 405, headers: { Allow: 'GET' } });
+        return readAfdianWebhookReceipts(url.searchParams);
+      }
       if (path.startsWith('/api/platform/') || path.startsWith('/api/profile') || path === '/api/session') return platformApi(request,account);
       if ((path === '/api/admin/export-image' || path === '/api/admin/download') && request.method === 'GET') {
         const photo = getAccountGallery(account.id,account.storage_id).sqlite.prepare('SELECT image_key,title,is_sample FROM photos WHERE id=?').get(new URL(request.url).searchParams.get('id') ?? '');

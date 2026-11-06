@@ -125,6 +125,27 @@ try {
   platformDatabase.exec('COMMIT');
 } catch (error) { platformDatabase.exec('ROLLBACK'); throw error; }
 
+platformDatabase.exec('BEGIN IMMEDIATE');
+try {
+  if (!platformDatabase.prepare("SELECT name FROM platform_migrations WHERE name='afdian-webhook-receipts'").get()) {
+    platformDatabase.exec(`CREATE TABLE afdian_webhook_receipts (
+      out_trade_no TEXT PRIMARY KEY,
+      buyer_id TEXT,
+      plan_id TEXT,
+      month INTEGER,
+      total_amount TEXT,
+      status INTEGER,
+      processing_state TEXT NOT NULL,
+      first_received_at TEXT NOT NULL,
+      last_received_at TEXT NOT NULL,
+      delivery_count INTEGER NOT NULL CHECK (delivery_count > 0)
+    );
+    CREATE INDEX afdian_webhook_receipts_received ON afdian_webhook_receipts(last_received_at DESC,out_trade_no);
+    INSERT INTO platform_migrations VALUES ('afdian-webhook-receipts');`);
+  }
+  platformDatabase.exec('COMMIT');
+} catch (error) { platformDatabase.exec('ROLLBACK'); throw error; }
+
 export function getPublicAccount(publicId) {
   return platformDatabase.prepare('SELECT * FROM users WHERE (public_id=? OR id=(SELECT user_id FROM public_id_aliases WHERE public_id=?)) AND is_active=1 AND deleted_at IS NULL').get(publicId, publicId);
 }

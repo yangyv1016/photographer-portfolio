@@ -61,6 +61,7 @@ globalThis.fetch=async(input,options)=>{
     assert.equal(accountA.role,'photographer');assert.ok(!('password_hash' in accountA));
     assert.equal(accountA.introduction,'');assert.equal(accountA.region,'');
     assert.equal(accountA.showPhotoNames,false);assert.equal(accountB.showPhotoNames,false);
+    assert.equal(accountA.listed,true);assert.equal(accountB.listed,true);
     assert.equal(accountA.directoryCoverUrl,'');assert.equal(accountB.directoryCoverUrl,'');
     assert.equal((await request('/admin',{headers:headersA})).status,403);
     assert.equal((await request('/api/platform/accounts',{headers:headersA})).status,403);
@@ -129,6 +130,39 @@ globalThis.fetch=async(input,options)=>{
     assert.equal((await request('/api/profile',{method:'PATCH',headers:headersA,body:JSON.stringify({...profileFields,introduction:'   ',region:'   '})})).status,200);
     const clearedProfile=(await (await request('/api/profile',{headers:headersA})).json()).account;
     assert.equal(clearedProfile.introduction,'');assert.equal(clearedProfile.region,'');assert.equal(clearedProfile.bio,profileFields.bio);
+    const beforeListing=catalog.prepare('SELECT * FROM users WHERE id=?').get(accountA.id);
+    const beforeOtherListing=catalog.prepare('SELECT * FROM users WHERE id=?').get(accountB.id);
+    assert.equal((await request('/api/profile/listing',{method:'PATCH',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({listed:false})})).status,401);
+    for(const Origin of [origin+'-attacker','']){
+      assert.equal((await request('/api/profile/listing',{method:'PATCH',headers:{...headersA,Origin},body:JSON.stringify({listed:false})})).status,403);
+    }
+    for(const method of ['GET','POST','PUT','DELETE']){
+      const response=await request('/api/profile/listing',{method,headers:headersA});
+      assert.equal(response.status,405);assert.equal(response.headers.get('allow'),'PATCH');
+    }
+    for(const fields of [{listed:'false'},{listed:0},{listed:null},{},{listed:false,id:accountB.id}]){
+      assert.equal((await request('/api/profile/listing',{method:'PATCH',headers:headersA,body:JSON.stringify(fields)})).status,400);
+    }
+    assert.deepEqual({...catalog.prepare('SELECT * FROM users WHERE id=?').get(accountA.id)},{...beforeListing});
+    const unlisted=await request('/api/profile/listing',{method:'PATCH',headers:headersA,body:JSON.stringify({listed:false})});
+    assert.equal(unlisted.status,200);assert.deepEqual(await unlisted.json(),{listed:false});
+    assert.deepEqual({...catalog.prepare('SELECT * FROM users WHERE id=?').get(accountA.id)},{...beforeListing,listed:0});
+    assert.deepEqual({...catalog.prepare('SELECT * FROM users WHERE id=?').get(accountB.id)},{...beforeOtherListing});
+    const unlistedDirectory=await (await request('/')).text();
+    assert.ok(!unlistedDirectory.includes('href="/alicia"'));assert.ok(unlistedDirectory.includes('href="/boris"'));
+    assert.equal((await request('/alicia')).status,200);assert.equal((await request('/alicia/album?series=scene')).status,200);
+    assert.equal((await request('/api/media/alicia/a-photo')).status,200);
+    assert.equal((await (await request('/api/session',{headers:headersA})).json()).account.listed,false);
+    assert.equal((await request('/api/profile',{method:'PATCH',headers:headersA,body:JSON.stringify({displayName:clearedProfile.displayName,bio:clearedProfile.bio})})).status,200);
+    assert.equal((await (await request('/api/profile',{headers:headersA})).json()).account.listed,false,'Saving profile fields must preserve directory visibility');
+    assert.equal((await request('/api/profile',{method:'PATCH',headers:headersA,body:JSON.stringify({...profileFields,listed:'true'})})).status,400);
+    const relisted=await request('/api/profile/listing',{method:'PATCH',headers:headersA,body:JSON.stringify({listed:true})});
+    assert.equal(relisted.status,200);assert.deepEqual(await relisted.json(),{listed:true});
+    assert.equal((await request('/api/profile',{method:'PATCH',headers:headersA,body:JSON.stringify({displayName:clearedProfile.displayName,bio:clearedProfile.bio})})).status,200);
+    assert.deepEqual({...catalog.prepare('SELECT * FROM users WHERE id=?').get(accountA.id)},{...beforeListing});
+    assert.deepEqual({...catalog.prepare('SELECT * FROM users WHERE id=?').get(accountB.id)},{...beforeOtherListing});
+    assert.ok((await (await request('/')).text()).includes('href="/alicia"'));
+    assert.equal((await (await request('/api/profile',{headers:headersA})).json()).account.listed,true);
     catalog.prepare('UPDATE users SET cover_key=?,cover_size=30,bio=? WHERE id=?').run('photos/covers/test.webp','Signature <script>',accountA.id);
     const coverPage=await (await request('/alicia')).text();
     assert.ok(coverPage.includes('class="profile-cover"'));assert.ok(coverPage.includes('width="1920" height="1080"'));

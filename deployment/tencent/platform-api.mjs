@@ -178,11 +178,19 @@ export async function platformApi(request, account) {
     const result = sqlite.prepare('DELETE FROM notes WHERE id=?').run(parsed.data.id);
     return result.changes ? Response.json({ deleted: true }) : Response.json({ error: '便签不存在。' }, { status: 404 });
   }
+  if (path === '/api/profile/listing') {
+    if (request.method !== 'PATCH') return Response.json({ error: '不支持此操作。' }, { status: 405, headers: { Allow: 'PATCH' } });
+    const parsed = z.object({ listed: z.boolean() }).strict().safeParse(await request.json());
+    if (!parsed.success) return Response.json({ error: '请选择是否在摄影师目录中展示主页。' }, { status: 400 });
+    platformDatabase.prepare('UPDATE users SET listed=? WHERE id=?').run(Number(parsed.data.listed), account.id);
+    return Response.json({ listed: parsed.data.listed });
+  }
   if (path === '/api/profile' && request.method === 'GET') return Response.json({ account: publicAccount(account), usage: accountUsage(account) });
   if (path === '/api/profile' && request.method === 'PATCH') {
-    const parsed = z.object({ displayName: z.string().trim().min(1).max(40), siteName: z.string().trim().min(1).max(40).optional(), publicId: z.string().trim().regex(/^[a-z][a-z0-9_-]{2,23}$/).optional(), bio: z.string().trim().max(240), introduction: z.string().trim().max(1000).optional(), region: z.string().trim().max(80).optional(), showPhotoNames: z.boolean().optional(), listed: z.boolean() }).safeParse(await request.json());
+    const parsed = z.object({ displayName: z.string().trim().min(1).max(40), siteName: z.string().trim().min(1).max(40).optional(), publicId: z.string().trim().regex(/^[a-z][a-z0-9_-]{2,23}$/).optional(), bio: z.string().trim().max(240), introduction: z.string().trim().max(1000).optional(), region: z.string().trim().max(80).optional(), showPhotoNames: z.boolean().optional(), listed: z.boolean().optional() }).safeParse(await request.json());
     if (!parsed.success || reservedIds.has(parsed.data.publicId ?? account.public_id)) return Response.json({ error: '请检查名称、签名、简介、地区和主页 ID；签名最多 240 字，简介最多 1000 字，地区最多 80 字。主页 ID 需为 3–24 位小写字母、数字、下划线或连字符，以字母开头。' }, { status: 400 });
-    const { displayName, bio, listed } = parsed.data;
+    const { displayName, bio } = parsed.data;
+    const listed = parsed.data.listed === undefined ? null : Number(parsed.data.listed);
     const siteName = parsed.data.siteName ?? account.site_name;
     const introduction = parsed.data.introduction ?? account.introduction;
     const region = parsed.data.region ?? account.region;
@@ -196,7 +204,7 @@ export async function platformApi(request, account) {
         platformDatabase.prepare('INSERT OR IGNORE INTO public_id_aliases VALUES (?,?)').run(account.public_id, account.id);
         platformDatabase.prepare('DELETE FROM public_id_aliases WHERE public_id=? AND user_id=?').run(publicId, account.id);
       }
-      platformDatabase.prepare('UPDATE users SET display_name=?,site_name=?,public_id=?,bio=?,introduction=?,region=?,show_photo_names=?,listed=? WHERE id=?').run(displayName, siteName, publicId, bio, introduction, region, Number(showPhotoNames), Number(listed), account.id);
+      platformDatabase.prepare('UPDATE users SET display_name=?,site_name=?,public_id=?,bio=?,introduction=?,region=?,show_photo_names=?,listed=COALESCE(?,listed) WHERE id=?').run(displayName, siteName, publicId, bio, introduction, region, Number(showPhotoNames), listed, account.id);
       platformDatabase.exec('COMMIT');
     } catch (error) { platformDatabase.exec('ROLLBACK'); throw error; }
     return Response.json({ saved: true });

@@ -134,3 +134,59 @@
 .note-editor{min-width:0}.note-editor-heading{margin-bottom:1rem}.note-editor-heading label{margin:0}.note-editor-heading .field-note{margin-bottom:0}.note-editor-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1rem;height:clamp(30rem,70dvh,52rem);min-width:0}.note-source-panel,.note-preview-panel{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:12px;background:#fff}.note-format-tools{display:flex;flex-wrap:wrap;gap:.35rem;padding:.65rem;border-bottom:1px solid var(--border);background:#f8fafc;flex-shrink:0}.note-format-tools button{border:1px solid #dce3ec;border-radius:5px;background:#fff;color:#536d89;padding:.45rem .6rem;font-size:.75rem;line-height:1.3;min-height:2rem;cursor:pointer}.note-format-tools button:hover{border-color:#8ba4bf;background:#edf3fa}.note-format-tools button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.note-format-tools button:disabled{opacity:.5;cursor:default}.note-editor #note-source{flex:1;min-height:0;border:0;border-radius:0;resize:none;padding:1rem;font:.875rem/1.8 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;tab-size:2;color:#33445b;background:#fff}.note-editor #note-source:focus{outline:2px solid #8ca7c4;outline-offset:-2px}.note-source-footer{display:flex;justify-content:space-between;gap:.4rem 1rem;flex-wrap:wrap;padding:.7rem 1rem;border-top:1px solid var(--border);font-size:.7rem;color:#8b97a6;flex-shrink:0}.note-preview-panel>h2{font-size:.8rem;color:#7c899b;font-weight:500;margin:0;padding:1rem;border-bottom:1px solid var(--border);flex-shrink:0}.note-editor #note-preview{padding:1.2rem;min-height:0;overflow:auto;overscroll-behavior:contain;flex:1}.note-editor-actions{position:sticky;bottom:0;z-index:3;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-top:1rem;padding:1rem;background:#fff;border:1px solid var(--border);border-radius:10px}.note-editor-actions [role=status]{font-size:.8rem;color:#7a899b}.note-shortcut{font-size:.65rem;font-weight:400;opacity:.75;margin-left:.65rem}.note-editor-view{display:none}.note-editor-view button{flex:1;border:0;border-radius:6px;background:transparent;color:#7890a7;padding:.65rem;font-size:.8rem;cursor:pointer}.note-editor-view button[aria-pressed=true]{background:#eaf0f7;color:#355e86;font-weight:600}@media(max-width:760px){.note-editor-view{display:flex;gap:.4rem;padding:.3rem;margin-bottom:.8rem;border:1px solid var(--border);border-radius:9px;background:#fff}.note-editor-grid{display:block;height:65dvh;min-height:28rem}.note-source-panel,.note-preview-panel{height:100%}.note-editor[data-mode=edit] .note-preview-panel,.note-editor[data-mode=preview] .note-source-panel{display:none}.note-editor-actions{padding:.8rem}.note-editor #note-preview{padding:1rem}.note-shortcut{display:none}.note-format-tools{padding:.5rem}.note-format-tools button{padding:.4rem .5rem}}
 
 .note-editor-dialog{width:calc(100vw - 2rem);max-width:none;height:calc(100dvh - 2rem);max-height:none;padding:1.3rem}.note-editor-dialog[open]{display:flex;flex-direction:column;gap:1rem}.note-editor-dialog>.dialog-heading{margin:0;flex-shrink:0}.note-editor-dialog>.dialog-heading p{margin:.35rem 0 0;font-size:.8rem}.note-editor-body{flex:1;min-height:0;overflow:auto}.note-editor-dialog .note-editor{height:100%;display:flex;flex-direction:column}.note-editor-dialog .note-editor-heading{flex-shrink:0}.note-editor-dialog .note-editor-grid{flex:1;height:auto;min-height:20rem}.note-editor-dialog .note-editor-actions{flex-shrink:0;position:static;margin-top:.8rem;padding:.8rem 0 0;border:0;border-top:1px solid var(--border);border-radius:0}.note-editor-actions>div,.note-close-confirm>div{display:flex;flex-wrap:wrap;gap:.6rem}.note-markdown-help{margin-top:.65rem;font-size:.8rem;color:#65758b}.note-markdown-help summary{cursor:pointer;color:#466c96}.note-markdown-help[open]{max-height:12rem;overflow:auto;border:1px solid var(--border);border-radius:6px;padding:.7rem}.note-markdown-help p{line-height:1.7}.note-markdown-help pre{white-space:pre-wrap;font-size:.8rem;line-height:1.7;margin-bottom:0}.note-close-confirm{flex-shrink:0;margin-top:.8rem;padding:.8rem 1rem;background:#fff8e8;border:1px solid #e9d39c;border-radius:8px}.note-close-confirm p{margin:0 0 .6rem;font-size:.85rem}.note-close-confirm[hidden]{display:none}@media(max-width:760px){.note-editor-dialog{width:100vw;height:100dvh;max-height:100dvh;max-width:100vw;margin:0;border:0;border-radius:0;padding:1rem}.note-editor-dialog[open]{gap:.8rem}.note-editor-dialog .note-editor-grid{min-height:19rem}.note-editor-dialog>.dialog-heading p{font-size:.72rem}.note-editor-dialog .note-editor-actions{gap:.6rem}.note-close-confirm>div{flex-wrap:wrap}.note-markdown-help[open]{max-height:9rem}}
+
+.subscription-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; }
+.subscription-summary > div { display: grid; gap: .45rem; min-width: 0; }
+.subscription-summary small, .subscription-summary span { color: #7b8999; font-size: .8rem; line-height: 1.6; }
+.subscription-summary strong { color: #304b69; font-size: 1.1rem; line-height: 1.65; overflow-wrap: anywhere; }
+.subscription-storage-meter { margin-top: 1.2rem; }
+.subscription-plan-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.subscription-plan { min-width: 0; margin: 0; }
+.subscription-plan.is-current { border-color: #90aac6; background: #f9fbfe; }
+.subscription-plan-heading { display: flex; justify-content: space-between; align-items: center; gap: .7rem; flex-wrap: wrap; }
+.subscription-plan-heading h2 { margin: 0; font-size: 1rem; }
+.subscription-price { color: #345675; font-size: 2.25rem; font-weight: 700; margin: 1.25rem 0 1rem; line-height: 1.2; }
+.subscription-price small { color: #8795a5; font-size: .8rem; font-weight: 400; white-space: nowrap; }
+.subscription-plan-quota { font-size: .85rem; color: #77899d; }
+.subscription-plan-quota strong { color: #3a5777; font-size: 1.1rem; }
+.subscription-plan .field-note { margin-bottom: 0; }
+.subscription-redeem form { max-width: 36rem; }
+.subscription-redeem .form-actions { justify-content: flex-start; }
+.subscription-capacity-warning { color: #96602b; background: #fff8e9; border: 1px solid #ecd7ac; border-radius: 8px; padding: .8rem 1rem; font-size: .85rem; line-height: 1.8; }
+.subscription-confirm-plan { color: #3d5d80; font-size: 1rem; font-weight: 600; line-height: 1.7; }
+.subscription-confirm-details { margin: 1rem 0; font-size: .85rem; line-height: 1.8; }
+.subscription-confirm-details > div { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: .65rem; padding: .65rem 0; border-bottom: 1px solid var(--border); }
+.subscription-confirm-details dt { color: #8390a0; }
+.subscription-confirm-details dd { margin: 0; color: #465b73; overflow-wrap: anywhere; }
+.subscription-banner { display: flex; justify-content: space-between; align-items: center; gap: .8rem 1.5rem; padding: .85rem 1rem; margin-bottom: 1.2rem; border: 1px solid #e9d5a5; border-radius: 10px; background: #fff9eb; color: #88602e; flex-shrink: 0; }
+.subscription-banner[hidden] { display: none; }
+.subscription-banner > div { min-width: 0; }
+.subscription-banner strong { font-size: .9rem; }
+.subscription-banner p { font-size: .78rem; line-height: 1.75; margin: .25rem 0 0; }
+.subscription-banner > .button { flex-shrink: 0; }
+.subscription-banner[data-expired=true] { border-color: #e8c9c2; background: #fff4f1; color: #995d4d; }
+.subscription-status-unavailable { border-color: #d7e2ee; background: #f4f8fc; color: #7187a0; }
+.subscription-status-unavailable > p { margin: 0; }
+.photo-workspace-content > .subscription-banner { margin: 1rem clamp(1rem, 3.5vw, 3.5rem); }
+.subscription-reminder-dialog { position: fixed; top: max(1rem, env(safe-area-inset-top)); bottom: auto; left: 0; right: 0; margin: 0 auto; width: min(34rem, calc(100% - 2rem)); padding: 1.3rem; }
+.subscription-reminder-dialog::backdrop { background: #18233126; }
+.subscription-reminder-dialog .dialog-heading { margin-bottom: .8rem; }
+.subscription-reminder-message { font-size: .9rem; line-height: 1.8; color: #526985; }
+.subscription-reminder-dialog .form-actions { flex-wrap: wrap; margin-bottom: 0; }
+.subscription-expired-page .auth-card h1 { font-size: clamp(1.4rem, 4vw, 1.85rem); line-height: 1.6; }
+.subscription-expired-page .quiet-link { display: block; text-align: center; margin-top: 1rem; }
+@media (max-width: 850px) {
+  .subscription-plan-grid { gap: .7rem; }
+  .subscription-plan { padding: 1rem; }
+  .subscription-price { font-size: 1.9rem; }
+}
+@media (max-width: 600px) {
+  .subscription-plan-grid { grid-template-columns: minmax(0, 1fr); }
+  .subscription-plan { padding: 1.2rem; }
+  .subscription-price { margin-top: .85rem; font-size: 2.1rem; }
+  .subscription-summary { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  .subscription-banner { align-items: flex-start; flex-wrap: wrap; padding: .85rem; gap: .7rem; }
+  .subscription-banner > .button { min-height: 2.75rem; }
+  .subscription-confirm-details > div { grid-template-columns: minmax(0, 1fr); gap: .2rem; }
+  .subscription-reminder-dialog { top: max(.75rem, env(safe-area-inset-top)); padding: 1rem; width: calc(100% - 1.5rem); }
+}

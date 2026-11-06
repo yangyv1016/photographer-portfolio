@@ -1,0 +1,69 @@
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { platformDatabase } from './platform-database.mjs';
+
+const dayMilliseconds = 86400000;
+export const subscriptionPlans = [
+  { id: 'monthly', name: '月卡', priceCents: 800, days: 30, quotaBytes: 5 * 1024 ** 3 },
+  { id: 'quarterly', name: '季卡', priceCents: 2000, days: 90, quotaBytes: 10 * 1024 ** 3 },
+  { id: 'yearly', name: '年卡', priceCents: 8800, days: 365, quotaBytes: 20 * 1024 ** 3 },
+];
+
+export function isSubscriptionExpired(account, now = Date.now()) {
+  return account.role !== 'admin' && account.subscription_expires_at !== null && account.subscription_expires_at <= now;
+}
+
+export function getSubscription(account, now = Date.now()) {
+  const permanent = account.role === 'admin' || account.subscription_expires_at === null;
+  const plan = subscriptionPlans.find(item => item.id === account.subscription_plan);
+  return {
+    planId: account.subscription_plan,
+    planName: account.role === 'admin' ? '平台管理员' : plan ? plan.name : '长期有效',
+    expiresAt: permanent ? null : account.subscription_expires_at,
+    expired: isSubscriptionExpired(account, now), permanent,
+    daysRemaining: permanent ? null : Math.max(0, Math.ceil((account.subscription_expires_at - now) / dayMilliseconds)),
+    quotaBytes: account.quota_bytes,
+  };
+}
+
+export function createSubscriptionCodes({ planId, count, validityDays, createdBy, note }) {
+  const plan = subscriptionPlans.find(item => item.id === planId);
+  if (!plan) throw new Error('Unknown subscription plan.');
+  const now = Date.now();
+  const codes = [];
+  const invitationIds = [];
+  platformDatabase.exec('BEGIN IMMEDIATE');
+  try {
+    const insert = platformDatabase.prepare(`INSERT INTO invitations
+      (id,token_hash,hint,note,quota_bytes,created_by,created_at,expires_at,subscription_plan,duration_days)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`);
+    for (let index = 0; index < count; index++) {
+      const code = `YY-${randomBytes(18).toString('base64url')}`;
+      const id = randomUUID();
+      insert.run(id, createHash('sha256').update(code).digest('hex'), `${code.slice(0, 7)}…${code.slice(-4)}`,
+        note, plan.quotaBytes, createdBy, new Date(now).toISOString(), validityDays ? now + validityDays * dayMilliseconds : null,
+        plan.id, plan.days);
+      codes.push(code);
+      invitationIds.push(id);
+    }
+    platformDatabase.exec('COMMIT');
+  } catch (error) { platformDatabase.exec('ROLLBACK'); throw error; }
+  return { codes, invitationIds, plan };
+}
+
+export function readSubscriptionInvitation(code, now) {
+  return platformDatabase.prepare(`SELECT * FROM invitations WHERE token_hash=? AND used_at IS NULL AND revoked_at IS NULL
+    AND (expires_at IS NULL OR expires_at>?) AND subscription_plan IS NOT NULL`)
+    .get(createHash('sha256').update(code).digest('hex'), now);
+}
+
+// Registration and renewal both call this inside their invitation-consumption transaction.
+export function applySubscriptionInvitation(account, invitation, now) {
+  const expiresAt = Math.max(now, account.subscription_expires_at ?? now) + invitation.duration_days * dayMilliseconds;
+  platformDatabase.prepare(`UPDATE users SET subscription_plan=?,subscription_expires_at=?,quota_bytes=?,subscription_reminded_on=NULL WHERE id=?`)
+    .run(invitation.subscription_plan, expiresAt, invitation.quota_bytes, account.id);
+  platformDatabase.prepare(`INSERT INTO subscription_redemptions
+    (invitation_id,user_id,plan_id,duration_days,previous_plan,previous_expires_at,expires_at,previous_quota_bytes,quota_bytes,redeemed_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`)
+    .run(invitation.id, account.id, invitation.subscription_plan, invitation.duration_days, account.subscription_plan,
+      account.subscription_expires_at, expiresAt, account.quota_bytes, invitation.quota_bytes, new Date(now).toISOString());
+}

@@ -3,6 +3,7 @@ import { platformDatabase } from './platform-database.mjs';
 import { getCurrentAccount, createAccountGallery } from './database.mjs';
 import { origin } from './config.mjs';
 import { authPage } from './platform-html.mjs';
+import { applySubscriptionInvitation } from './subscriptions.mjs';
 
 const cookieName = 'yangyu_admin';
 const sessionSeconds = 12 * 60 * 60;
@@ -98,6 +99,7 @@ export async function login(request, clientIp, registering = false) {
               .run(publicId, publicId, randomUUID(), savedPassword, displayName.trim(), displayName.trim(), code.quota_bytes, new Date(now).toISOString());
             const account = platformDatabase.prepare('SELECT * FROM users WHERE id=?').get(Number(created.lastInsertRowid));
             createAccountGallery(account.id,account.storage_id);
+            if (code.subscription_plan !== null) applySubscriptionInvitation(account, code, now);
             platformDatabase.prepare('UPDATE invitations SET used_at=?,used_by=? WHERE id=? AND used_at IS NULL').run(new Date(now).toISOString(), account.id, code.id);
             platformDatabase.exec('COMMIT');
             attempts.delete(clientIp);

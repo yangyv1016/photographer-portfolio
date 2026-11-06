@@ -3,6 +3,7 @@ import { isIP, SocketAddress } from 'node:net';
 import { origin } from './config.mjs';
 import { getPublicAccount, platformDatabase } from './platform-database.mjs';
 import { getSession } from './auth.mjs';
+import { isSubscriptionExpired } from './subscriptions.mjs';
 
 const dayMilliseconds = 24 * 60 * 60 * 1000;
 const shanghaiOffset = 8 * 60 * 60 * 1000;
@@ -117,6 +118,7 @@ export function recordPublicVisit(request, publicId, clientIp) {
   }
   const account = getPublicAccount(publicId);
   if (!account) return Response.json({ error: '摄影师主页不存在。' }, { status: 404 });
+  if (isSubscriptionExpired(account)) return Response.json({ error: '本用户订阅已到期，请及时订阅' }, { status: 403 });
 
   const family = isIP(clientIp);
   const address = SocketAddress.parse(family === 6 ? `[${clientIp}]:0` : `${clientIp}:0`);

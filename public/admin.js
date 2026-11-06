@@ -244,11 +244,13 @@ function renderQueue() {
 
 function setBusy(value) {
   busy = value;
+  document.body.dataset.photoBusy = String(value);
   document.querySelectorAll('button, input, select, textarea').forEach(control => { control.disabled = value; });
   renderPhotos();
   renderQueue();
   document.querySelector('#confirm-delete').disabled = value || !pendingDeleteIds.length;
   renderSeriesManager();
+  document.querySelector('#open-upload').disabled = value || document.body.dataset.subscriptionExpired === 'true';
 }
 
 async function loadPhotos() {

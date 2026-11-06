@@ -99,6 +99,32 @@ if (!platformDatabase.prepare("SELECT name FROM platform_migrations WHERE name='
   } catch (error) { platformDatabase.exec('ROLLBACK'); throw error; }
 }
 
+platformDatabase.exec('BEGIN IMMEDIATE');
+try {
+  if (!platformDatabase.prepare("SELECT name FROM platform_migrations WHERE name='subscriptions'").get()) {
+    platformDatabase.exec(`ALTER TABLE users ADD COLUMN subscription_plan TEXT CHECK (subscription_plan IN ('monthly','quarterly','yearly'));
+      ALTER TABLE users ADD COLUMN subscription_expires_at INTEGER;
+      ALTER TABLE users ADD COLUMN subscription_reminded_on TEXT;
+      ALTER TABLE invitations ADD COLUMN subscription_plan TEXT CHECK (subscription_plan IN ('monthly','quarterly','yearly'));
+      ALTER TABLE invitations ADD COLUMN duration_days INTEGER CHECK (duration_days > 0);
+      CREATE TABLE subscription_redemptions (
+        invitation_id TEXT PRIMARY KEY REFERENCES invitations(id),
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        plan_id TEXT NOT NULL,
+        duration_days INTEGER NOT NULL CHECK (duration_days > 0),
+        previous_plan TEXT,
+        previous_expires_at INTEGER,
+        expires_at INTEGER NOT NULL,
+        previous_quota_bytes INTEGER NOT NULL,
+        quota_bytes INTEGER NOT NULL,
+        redeemed_at TEXT NOT NULL
+      );
+      CREATE INDEX subscription_redemptions_user ON subscription_redemptions(user_id,redeemed_at);
+      INSERT INTO platform_migrations VALUES ('subscriptions');`);
+  }
+  platformDatabase.exec('COMMIT');
+} catch (error) { platformDatabase.exec('ROLLBACK'); throw error; }
+
 export function getPublicAccount(publicId) {
   return platformDatabase.prepare('SELECT * FROM users WHERE (public_id=? OR id=(SELECT user_id FROM public_id_aliases WHERE public_id=?)) AND is_active=1 AND deleted_at IS NULL').get(publicId, publicId);
 }
@@ -108,6 +134,7 @@ export function publicAccount(account) {
     id: account.id, loginId: account.login_id, publicId: account.public_id,
     displayName: account.display_name, siteName: account.site_name, bio: account.bio, introduction: account.introduction, region: account.region, role: account.role,
     active: account.is_active === 1, listed: account.listed === 1,
+    subscriptionPlan: account.subscription_plan, subscriptionExpiresAt: account.subscription_expires_at,
     quotaBytes: account.quota_bytes, avatarUrl: account.avatar_key ? `/api/avatars/${account.public_id}` : '',
     coverUrl: account.cover_key ? `/api/covers/${account.public_id}` : '',
     directoryCoverUrl: account.directory_cover_key ? `/api/directory-covers/${account.public_id}` : '',

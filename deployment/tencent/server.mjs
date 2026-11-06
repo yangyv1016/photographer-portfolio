@@ -8,7 +8,8 @@ import { getAccountGallery, getGalleryNotes, withAccount, closeDatabases } from 
 import { getSession, requireSession, login, logout } from './auth.mjs';
 import { platformDatabase, getPublicAccount } from './platform-database.mjs';
 import { platformApi, accountUsage, backfillStorage } from './platform-api.mjs';
-import { directoryPage, workspacePage, photoWorkspace } from './platform-html.mjs';
+import { directoryPage, workspacePage, photoWorkspace, subscriptionExpiredPage } from './platform-html.mjs';
+import { isSubscriptionExpired } from './subscriptions.mjs';
 import { objectResponse } from './storage.mjs';
 import { previewResponse } from './preview.mjs';
 import { recordPublicVisit } from './visit-statistics.mjs';
@@ -56,7 +57,7 @@ async function route(request, clientIp) {
   const visitPage = path.match(/^\/api\/visits\/([a-z][a-z0-9_-]{2,23})$/);
   if (visitPage) return recordPublicVisit(request, visitPage[1], clientIp);
   if (path === '/' && request.method === 'GET') {
-    const accounts = platformDatabase.prepare('SELECT * FROM users WHERE is_active=1 AND listed=1 AND deleted_at IS NULL ORDER BY created_at,id').all();
+    const accounts = platformDatabase.prepare('SELECT * FROM users WHERE is_active=1 AND listed=1 AND deleted_at IS NULL ORDER BY created_at,id').all().filter(account=>!isSubscriptionExpired(account));
     return new Response(directoryPage(accounts.map(account=>({ ...account, ...accountUsage(account) }))), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
   }
   const privatePath = path === '/admin' || path.startsWith('/admin/') || path === '/dashboard' || path.startsWith('/dashboard/') || path.startsWith('/api/admin/') || path.startsWith('/api/platform/') || path.startsWith('/api/profile') || path === '/api/session' || path === '/admin.js' || path === '/admin-client.js';
@@ -71,7 +72,7 @@ async function route(request, clientIp) {
         const profile = { publicId: account.public_id, name: account.display_name, siteName: account.site_name, showPhotoNames: account.show_photo_names === 1 };
         return renderAlbum(profile, { selectedSeriesId: url.searchParams.get('series') ?? '', workspace: true });
       }
-      const workspace = new Map([['/dashboard/profile','profile'],['/dashboard/notes','notes'],['/dashboard/visits','visits'],['/admin','overview'],['/admin/accounts','accounts'],['/admin/invitations','invitations']]);
+      const workspace = new Map([['/dashboard/profile','profile'],['/dashboard/notes','notes'],['/dashboard/visits','visits'],['/dashboard/subscription','subscription'],['/admin','overview'],['/admin/accounts','accounts'],['/admin/invitations','invitations']]);
       if (workspace.has(path) && request.method === 'GET') return new Response(workspacePage(account,workspace.get(path)), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
       if (path.startsWith('/api/platform/') || path.startsWith('/api/profile') || path === '/api/session') return platformApi(request,account);
       if ((path === '/api/admin/export-image' || path === '/api/admin/download') && request.method === 'GET') {
@@ -105,12 +106,14 @@ async function route(request, clientIp) {
   }
   if (path.startsWith('/api/avatars/') && request.method === 'GET') {
     const account = getPublicAccount(path.slice('/api/avatars/'.length));
+    if (account && isSubscriptionExpired(account) && getSession(request)?.id !== account.id) return Response.json({ error: '本用户订阅已到期，请及时订阅' }, { status: 403 });
     return account?.avatar_key ? imageResponse(account.avatar_key) : new Response('Avatar not found', { status: 404 });
   }
   if ((path.startsWith('/api/covers/') || path.startsWith('/api/directory-covers/')) && request.method === 'GET') {
     const isDirectoryCover = path.startsWith('/api/directory-covers/');
     const prefix = isDirectoryCover ? '/api/directory-covers/' : '/api/covers/';
     const account = getPublicAccount(path.slice(prefix.length));
+    if (account && isSubscriptionExpired(account) && getSession(request)?.id !== account.id) return Response.json({ error: '本用户订阅已到期，请及时订阅' }, { status: 403 });
     const key = isDirectoryCover ? account?.directory_cover_key : account?.cover_key;
     return key ? imageResponse(key) : new Response('Cover not found', { status: 404 });
   }
@@ -118,6 +121,7 @@ async function route(request, clientIp) {
     const parts = path.slice('/api/media/'.length).split('/');
     const account = parts.length === 2 ? getPublicAccount(parts[0]) : platformDatabase.prepare('SELECT * FROM users WHERE id=1 AND is_active=1 AND deleted_at IS NULL').get();
     if (!account || parts.length > 2) return new Response('Photo not found', { status: 404 });
+    if (isSubscriptionExpired(account) && getSession(request)?.id !== account.id) return Response.json({ error: '本用户订阅已到期，请及时订阅' }, { status: 403 });
     const photo = getAccountGallery(account.id,account.storage_id).sqlite.prepare('SELECT image_key AS imageKey FROM photos WHERE id=?').get(decodeURIComponent(parts.at(-1)));
     if (!photo?.imageKey) return new Response('Photo not found', { status: 404 });
     // Only registered photos can be viewed; never expose an arbitrary COS object key.
@@ -134,6 +138,7 @@ async function route(request, clientIp) {
   if (request.method === 'GET' && publicPage) {
     const account = getPublicAccount(publicPage[1]);
     if (account) {
+      if (isSubscriptionExpired(account)) return new Response(subscriptionExpiredPage(account), { status: 403, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store', 'X-Robots-Tag': 'noindex, nofollow' } });
       const notes = getGalleryNotes(account.id,account.storage_id);
       const profile = { publicId: account.public_id, name: account.display_name, siteName: account.site_name, avatarUrl: account.avatar_key ? `/api/avatars/${account.public_id}` : '', coverUrl: account.cover_key ? `/api/covers/${account.public_id}` : '', bio: account.bio, introduction: account.introduction, region: account.region, showPhotoNames: account.show_photo_names === 1, notes };
       return withAccount(account, () => publicPage[2]

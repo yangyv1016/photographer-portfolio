@@ -213,7 +213,7 @@ async function visits() {
 
 async function accounts() {
   const data = await api('/api/platform/accounts');
-  body.innerHTML = `<section class="panel"><div class="panel-heading"><div><h2>摄影师账户</h2><p>${data.accounts.length} 个账户。点击「分配容量」单独设置每个账户的上传上限。</p></div><a class="button primary" href="/admin/invitations">邀请摄影师</a></div><div class="table-wrap"><table class="platform-table"><thead><tr><th>摄影师 / ID</th><th>状态</th><th>作品</th><th>已用 / 分配容量</th><th>加入时间</th><th>操作</th></tr></thead><tbody>${data.accounts.map(account=>`<tr><td><strong>${escapeHtml(account.displayName)}</strong><small>/${escapeHtml(account.publicId)} · ${escapeHtml(account.loginId)}</small></td><td><span class="badge ${account.deletedAt ? 'deleted' : account.active ? 'active' : 'disabled'}">${account.deletedAt ? '回收站' : account.active ? '正常' : '停用'}</span>${account.role === 'admin' ? ' <span class="badge admin">管理员</span>' : ''}</td><td>${account.photoCount} 张<small>${account.seriesCount} 个系列</small></td><td><strong>${bytes(account.storageBytes)} / ${bytes(account.quotaBytes)}</strong><div class="meter account-storage-meter"><span style="width:${Math.min(100,Math.round((account.storageBytes+account.pendingBytes)/account.quotaBytes*100))}%"></span></div><small>剩余 ${bytes(account.availableBytes)}${account.pendingBytes ? ` · 待上传 ${bytes(account.pendingBytes)}` : ''}${account.storageComplete ? '' : ' · 容量核对中'}</small></td><td>${date(account.createdAt)}</td><td class="actions"><button type="button" class="button secondary small" data-quota="${account.id}">分配容量</button><a class="button ghost small" href="/${escapeHtml(account.publicId)}">主页 ↗</a>${account.role !== 'admin' ? account.deletedAt ? `<button type="button" class="button ghost small" data-account="${account.id}" data-action="restore">恢复</button>` : `<button type="button" class="button ghost small" data-account="${account.id}" data-action="${account.active ? 'disable' : 'enable'}">${account.active ? '停用' : '启用'}</button><button type="button" class="button ghost small" data-account="${account.id}" data-action="trash">回收站</button>` : ''}</td></tr>`).join('')}</tbody></table></div></section>`;
+  body.innerHTML = `<section class="panel"><div class="panel-heading"><div><h2>摄影师账户</h2><p>${data.accounts.length} 个账户。点击「分配容量」单独设置每个账户的上传上限。</p></div><a class="button primary" href="/admin/invitations">邀请摄影师</a></div><div class="table-wrap"><table class="platform-table"><thead><tr><th>摄影师 / ID</th><th>状态</th><th>作品</th><th>已用 / 分配容量</th><th>加入时间</th><th>操作</th></tr></thead><tbody>${data.accounts.map(account=>`<tr><td><strong>${escapeHtml(account.displayName)}</strong><small>/${escapeHtml(account.publicId)} · ${escapeHtml(account.loginId)}</small></td><td><span class="badge ${account.deletedAt ? 'deleted' : account.active ? 'active' : 'disabled'}">${account.deletedAt ? '回收站' : account.active ? '正常' : '停用'}</span>${account.role === 'admin' ? ' <span class="badge admin">管理员</span>' : ''}${!account.subscription.permanent ? `<small>${account.subscription.expired ? '订阅已到期' : escapeHtml(account.subscription.planName)} · ${date(account.subscription.expiresAt)}</small>` : ''}</td><td>${account.photoCount} 张<small>${account.seriesCount} 个系列</small></td><td><strong>${bytes(account.storageBytes)} / ${bytes(account.quotaBytes)}</strong><div class="meter account-storage-meter"><span style="width:${Math.min(100,Math.round((account.storageBytes+account.pendingBytes)/account.quotaBytes*100))}%"></span></div><small>剩余 ${bytes(account.availableBytes)}${account.pendingBytes ? ` · 待上传 ${bytes(account.pendingBytes)}` : ''}${account.storageComplete ? '' : ' · 容量核对中'}</small></td><td>${date(account.createdAt)}</td><td class="actions"><button type="button" class="button secondary small" data-quota="${account.id}">分配容量</button><a class="button ghost small" href="/${escapeHtml(account.publicId)}">主页 ↗</a>${account.role !== 'admin' ? account.deletedAt ? `<button type="button" class="button ghost small" data-account="${account.id}" data-action="restore">恢复</button>` : `<button type="button" class="button ghost small" data-account="${account.id}" data-action="${account.active ? 'disable' : 'enable'}">${account.active ? '停用' : '启用'}</button><button type="button" class="button ghost small" data-account="${account.id}" data-action="trash">回收站</button>` : ''}</td></tr>`).join('')}</tbody></table></div></section>`;
   body.querySelectorAll('[data-quota]').forEach(button=>button.addEventListener('click',()=>{
     const account = data.accounts.find(item=>item.id === Number(button.dataset.quota));
     const element = dialog(`${dialogHeading('分配上传容量')}<p class="field-note">${escapeHtml(account.displayName)} · 已用 ${bytes(account.storageBytes)} · 待上传 ${bytes(account.pendingBytes)}</p><form><label>上传容量上限（GiB）<input type="number" name="quota" min="${1/1024**3}" step="any" value="${account.quotaBytes/1024**3}" required></label><p class="field-note">必须大于 0。照片、头像、封面和待完成上传共同计入容量；调低上限不会删除已有照片，超额后将停止继续上传。</p><div class="form-actions"><button type="button" class="button secondary" data-close>取消</button><button type="submit" class="button primary">保存容量</button></div></form>`);
@@ -235,24 +235,70 @@ async function accounts() {
   }));
 }
 
+async function subscription(data = null) {
+  const subscriptionDate = value => new Date(value).toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Shanghai'});
+  data ??= await api('/api/profile/subscription');
+  const current = data.subscription;
+  const admin = app.dataset.accountRole === 'admin';
+  const used = data.usage.storageBytes + data.usage.pendingBytes;
+  body.innerHTML = `<section class="panel subscription-current"><div class="panel-heading"><div><h2>当前订阅</h2><p>${admin ? '平台管理员免订阅。' : current.permanent ? '原有账户权限保留，当前长期有效。' : current.expired ? '订阅已到期，照片保留，续订后恢复公开展示和上传。' : `当前为${escapeHtml(current.planName)}，到期后公开展示和上传将暂停。`}</p></div><span class="badge ${current.expired ? 'disabled' : 'active'}">${admin ? '管理员' : current.permanent ? '长期有效' : current.expired ? '已到期' : '订阅中'}</span></div><div class="subscription-summary"><div><small>订阅到期时间</small><strong>${current.expiresAt === null || admin ? '长期有效' : subscriptionDate(current.expiresAt)}</strong>${!current.permanent && !current.expired ? `<span>剩余 ${current.daysRemaining} 天</span>` : ''}</div><div><small>已用 / 当前总额度</small><strong>${bytes(data.usage.storageBytes)} / ${bytes(current.quotaBytes)}</strong><span>${data.usage.pendingBytes ? `待上传 ${bytes(data.usage.pendingBytes)} · ` : ''}剩余 ${bytes(data.usage.availableBytes)}</span></div></div><div class="meter subscription-storage-meter"><span style="width:${Math.min(100,used/current.quotaBytes*100)}%"></span></div>${used > current.quotaBytes ? '<p class="subscription-capacity-warning">当前文件和待上传任务已超过容量额度，已有照片保留；请清理文件、取消未完成上传或兑换更大容量的套餐后继续上传。</p>' : ''}</section>
+    <section class="subscription-plan-grid" aria-label="订阅套餐">${data.plans.map(plan=>`<article class="panel subscription-plan${current.planId === plan.id ? ' is-current' : ''}"><div class="subscription-plan-heading"><h2>${escapeHtml(plan.name)}</h2>${current.planId === plan.id ? '<span class="badge active">当前套餐</span>' : ''}</div><p class="subscription-price">¥${plan.priceCents/100}<small> / ${plan.days} 天</small></p><p class="subscription-plan-quota"><strong>${plan.quotaBytes/1024**3} GB</strong> 存储容量</p><p class="field-note">当前套餐总额度，不叠加。兑换后立即生效。</p></article>`).join('')}</section>
+    ${admin ? '<section class="panel"><h2>管理员免订阅</h2><p class="muted">无需兑换订阅码。请在「兑换码」中生成月卡、季卡或年卡，提供给摄影师注册或续期。</p><a class="button secondary" href="/admin/invitations">管理兑换码</a></section>' : `<section class="panel subscription-redeem"><div class="panel-heading"><div><h2>兑换订阅码</h2><p>新用户用码注册，已有账户在这里兑换续期；每个码只能使用一次。</p></div></div><form id="subscription-redeem-form"><label for="subscription-code">邀请码 / 兑换码<input id="subscription-code" name="code" autocomplete="off" maxlength="100" placeholder="粘贴完整兑换码" required></label><div class="form-actions"><button class="button primary" type="submit">查看兑换权益</button></div></form><p class="field-note">剩余时长保留，新卡天数追加到当前到期日之后；已到期则从兑换时起算。容量会立即切换为新卡额度。照片和作品目录保留。</p><p class="field-note">爱发电档位开通前，请向管理员获取兑换码。</p></section>`}`;
+  if (admin) return;
+  body.querySelector('#subscription-redeem-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const submit = event.currentTarget.querySelector('[type=submit]');
+    const code = new FormData(event.currentTarget).get('code').trim();
+    submit.disabled = true;
+    try {
+      const preview = await api('/api/profile/subscription/preview', 'POST', { code });
+      const reserved = preview.usage.storageBytes + preview.usage.pendingBytes;
+      const element = dialog(`${dialogHeading('确认兑换订阅')}<p class="subscription-confirm-plan">${escapeHtml(preview.plan.name)} · ${preview.plan.days} 天 · ${preview.plan.quotaBytes/1024**3} GB</p><dl class="subscription-confirm-details"><div><dt>到期时间</dt><dd>${preview.subscription.permanent ? '当前长期有效' : subscriptionDate(preview.subscription.expiresAt)} → ${subscriptionDate(preview.nextExpiresAt)}</dd></div><div><dt>总容量额度</dt><dd>${bytes(preview.subscription.quotaBytes)} → ${bytes(preview.plan.quotaBytes)}，立即切换</dd></div><div><dt>已用与待上传</dt><dd>${bytes(preview.usage.storageBytes)}${preview.usage.pendingBytes ? ` + 待上传 ${bytes(preview.usage.pendingBytes)}` : ''}</dd></div></dl>${preview.subscription.permanent ? '<p class="subscription-capacity-warning">当前账户为长期有效，兑换后将转为上面显示的有限期订阅。</p>' : ''}${preview.plan.quotaBytes < preview.subscription.quotaBytes ? '<p class="subscription-capacity-warning">新卡容量低于当前额度，兑换后会立即降低总容量；已有订阅时长继续保留。</p>' : ''}${reserved > preview.plan.quotaBytes ? '<p class="subscription-capacity-warning">当前文件与待上传任务超过新额度。照片不会被删除，但兑换后将暂停继续上传，直到用量回到额度内或升级容量。</p>' : ''}<p class="field-note">确认后兑换码立即使用，不能再次注册或续期。</p><div class="form-actions"><button type="button" class="button secondary" data-close>取消</button><button type="button" class="button primary" id="confirm-subscription-redeem">确认兑换</button></div>`);
+      element.querySelector('#confirm-subscription-redeem').addEventListener('click', async () => {
+        const confirm = element.querySelector('#confirm-subscription-redeem');
+        confirm.disabled = true;
+        try {
+          const result = await api('/api/profile/subscription', 'POST', { code });
+          element.close();
+          await subscription({ ...result, plans: data.plans });
+          window.dispatchEvent(new CustomEvent('subscription-updated', { detail: result.subscription }));
+          notify('兑换成功，订阅期限和容量已更新。');
+        } catch (error) {
+          notify(error.message, true);
+          confirm.disabled = false;
+        }
+      });
+    } catch (error) {
+      notify(error.message, true);
+    } finally {
+      submit.disabled = false;
+    }
+  });
+}
+
 async function invitations(page=1) {
   const data=await api(`/api/platform/invitations?page=${page}`);
-  body.innerHTML=`<section class="panel"><div class="panel-heading"><div><h2>邀请码</h2><p>一个邀请码仅可注册一个账户。</p></div><button type="button" class="button primary" id="create-invitation">生成邀请码</button></div><div class="table-wrap"><table class="platform-table"><thead><tr><th>邀请码摘要 / 备注</th><th>状态</th><th>注册账户</th><th>初始配额</th><th>有效期</th><th>操作</th></tr></thead><tbody>${data.invitations.map(item=>{const state=item.usedAt ? '已使用' : item.revokedAt ? '已撤销' : item.expiresAt && item.expiresAt<=Date.now() ? '已过期' : '未使用';return `<tr><td><strong>${escapeHtml(item.hint)}</strong><small>${escapeHtml(item.note)}</small></td><td><span class="badge ${state === '未使用' ? 'active' : ''}">${state}</span></td><td>${item.usedBy ? escapeHtml(item.usedBy) : '—'}</td><td>${bytes(item.quotaBytes)}</td><td>${date(item.expiresAt)}</td><td>${!item.usedAt && !item.revokedAt ? `<button type="button" class="button ghost small" data-revoke="${item.id}">撤销</button>` : '—'}</td></tr>`;}).join('') || '<tr><td colspan="6" class="empty-state">还没有邀请码，点击右上角生成。</td></tr>'}</tbody></table></div></section>`;
+  body.innerHTML=`<section class="panel"><div class="panel-heading"><div><h2>兑换码</h2><p>订阅兑换码可用于注册或后台续期，每个码只能使用一次。</p></div><button type="button" class="button primary" id="create-invitation">生成兑换码</button></div><div class="table-wrap"><table class="platform-table"><thead><tr><th>兑换码摘要 / 备注</th><th>状态</th><th>使用账户</th><th>套餐 / 总容量</th><th>可兑换截止时间</th><th>操作</th></tr></thead><tbody>${data.invitations.map(item=>{const state=item.usedAt ? '已使用' : item.revokedAt ? '已撤销' : item.expiresAt && item.expiresAt<=Date.now() ? '已过期' : '未使用';const plan=item.planId ? data.plans.find(plan=>plan.id === item.planId) : null;return `<tr><td><strong>${escapeHtml(item.hint)}</strong><small>${escapeHtml(item.note)}</small></td><td><span class="badge ${state === '未使用' ? 'active' : ''}">${state}</span></td><td>${item.usedBy ? escapeHtml(item.usedBy) : '—'}</td><td>${plan ? `${escapeHtml(plan.name)} · ${item.durationDays} 天` : '原有注册码'}<small>${bytes(item.quotaBytes)}${plan ? '，不累加' : ''}</small></td><td>${date(item.expiresAt)}</td><td>${!item.usedAt && !item.revokedAt ? `<button type="button" class="button ghost small" data-revoke="${item.id}">撤销</button>` : '—'}</td></tr>`;}).join('') || '<tr><td colspan="6" class="empty-state">还没有兑换码，点击右上角生成。</td></tr>'}</tbody></table></div><p class="field-note">原有注册码继续按原规则使用。可兑换截止时间只限制码何时可用，与成功兑换后的订阅期限分开。</p></section>`;
   document.querySelector('#create-invitation').addEventListener('click',()=>{
-    const element=dialog(`${dialogHeading('生成邀请码')}<form><div class="form-row"><label>数量<input name="count" type="number" value="1" min="1" max="50" step="1" required></label><label>有效期<select name="days"><option value="7">7 天</option><option value="30">30 天</option><option value="90">90 天</option><option value="0">长期有效</option></select></label></div><label>新账户上传容量（GiB）<input name="quota" type="number" min="${1/1024**3}" step="any" value="${data.defaultQuotaBytes/1024**3}" required></label><p class="field-note">必须大于 0，注册后可在账户管理中单独调整。</p><label>备注（选填）<input name="note" maxlength="80"></label><div class="form-actions"><button type="button" class="button secondary" data-close>取消</button><button class="button primary" type="submit">生成</button></div></form>`);
+    const element=dialog(`${dialogHeading('生成订阅兑换码')}<form><label>套餐<select name="planId">${data.plans.map(plan=>`<option value="${plan.id}">${escapeHtml(plan.name)} · ¥${plan.priceCents/100} / ${plan.days} 天 · ${plan.quotaBytes/1024**3} GB</option>`).join('')}</select></label><p class="field-note">套餐决定订阅时长和总容量。新账户注册时激活，已有账户兑换时续期；跨档兑换立即切换容量。</p><div class="form-row"><label>数量<input name="count" type="number" value="1" min="1" max="50" step="1" required></label><label>可兑换期限<select name="days"><option value="0">长期可兑换</option><option value="7">生成后 7 天</option><option value="30">生成后 30 天</option><option value="90">生成后 90 天</option></select></label></div><label>备注（选填）<input name="note" maxlength="80"></label><div class="form-actions"><button type="button" class="button secondary" data-close>取消</button><button class="button primary" type="submit">生成</button></div></form>`);
     element.querySelector('form').addEventListener('submit',async event=>{
       event.preventDefault();const form=new FormData(event.currentTarget);const submit=element.querySelector('[type=submit]');submit.disabled=true;
       try{
-        const result=await api('/api/platform/invitations','POST',{count:Number(form.get('count')),days:Number(form.get('days')),quotaBytes:Math.round(Number(form.get('quota'))*1024**3),note:form.get('note')});
+        const plan=data.plans.find(plan=>plan.id === form.get('planId'));
+        const result=await api('/api/platform/invitations','POST',{planId:plan.id,count:Number(form.get('count')),days:Number(form.get('days')),note:form.get('note')});
         element.close();await invitations();
-        const created=dialog(`${dialogHeading('邀请码已生成')}<p class="field-note">完整邀请码只在这里显示一次，请复制保存。每个邀请码只能注册一个账户。</p><label>邀请码<textarea id="new-codes" rows="${Math.min(result.codes.length+1,12)}" readonly>${escapeHtml(result.codes.join('\n'))}</textarea></label><div class="form-actions"><button type="button" class="button secondary" data-close>完成</button><button type="button" class="button primary" id="copy-codes">复制邀请码</button></div>`);
-        created.querySelector('#copy-codes').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(result.codes.join('\n'));notify('邀请码已复制。');}catch{created.querySelector('#new-codes').select();notify('请选中文本手动复制。');}});
+        const created=dialog(`${dialogHeading('兑换码已生成')}<p class="subscription-confirm-plan">${escapeHtml(plan.name)} · ${plan.days} 天 · ${plan.quotaBytes/1024**3} GB</p><p class="field-note">完整码只在这里显示一次，请复制或下载保存。每个码可注册或续期一次。可按套餐分别填入爱发电「自动随机回复」，一行一个码。</p><label>兑换码<textarea id="new-codes" rows="${Math.min(result.codes.length+1,12)}" readonly>${escapeHtml(result.codes.join('\n'))}</textarea></label><div class="form-actions"><button type="button" class="button secondary" data-close>完成</button><button type="button" class="button secondary" id="download-codes">下载 TXT</button><button type="button" class="button primary" id="copy-codes">复制兑换码</button></div>`);
+        created.querySelector('#copy-codes').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(result.codes.join('\n'));notify('兑换码已复制。');}catch{created.querySelector('#new-codes').select();notify('请选中文本手动复制。');}});
+        created.querySelector('#download-codes').addEventListener('click',()=>{
+          const url=URL.createObjectURL(new Blob([result.codes.join('\n')+'\n'],{type:'text/plain;charset=utf-8'}));
+          const link=document.createElement('a');link.href=url;link.download=`photographer-${plan.id}-codes.txt`;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+        });
       }catch(error){notify(error.message,true);}finally{submit.disabled=false;}
     });
   });
   body.querySelectorAll('[data-revoke]').forEach(button=>button.addEventListener('click',async()=>{
     button.disabled=true;
-    try{await api('/api/platform/invitations','DELETE',{id:button.dataset.revoke});await invitations(data.page);notify('邀请码已撤销。');}
+    try{await api('/api/platform/invitations','DELETE',{id:button.dataset.revoke});await invitations(data.page);notify('兑换码已撤销。');}
     catch(error){notify(error.message,true);button.disabled=false;}
   }));
   const pages=Math.max(1,Math.ceil(data.total/50));
@@ -261,6 +307,7 @@ async function invitations(page=1) {
   body.append(pagination);
   pagination.querySelectorAll('[data-page]').forEach(button=>button.addEventListener('click',()=>invitations(Number(button.dataset.page)).catch(error=>notify(error.message,true))));
 }
+
 
 async function profile() {
   const {account,usage}=await api('/api/profile');
@@ -748,7 +795,7 @@ function noteEditor(note) {
   title.focus();
 }
 
-const pages={overview,accounts,invitations,profile,notes,visits};
+const pages={overview,accounts,invitations,profile,notes,visits,subscription};
 pages[app.dataset.page]().catch(error=>notify(error.message,true));
 if (app.dataset.page === 'notes') {
   let refreshing = false;

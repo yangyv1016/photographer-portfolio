@@ -215,6 +215,15 @@ try {
   platformDatabase.exec('COMMIT');
 } catch (error) { platformDatabase.exec('ROLLBACK'); throw error; }
 
+platformDatabase.exec('BEGIN IMMEDIATE');
+try {
+  if (!platformDatabase.prepare("SELECT name FROM platform_migrations WHERE name='afdian-storage-addon-deliveries'").get()) {
+    platformDatabase.exec(`ALTER TABLE afdian_order_deliveries ADD COLUMN sku_quantities TEXT;
+      INSERT INTO platform_migrations VALUES ('afdian-storage-addon-deliveries');`);
+  }
+  platformDatabase.exec('COMMIT');
+} catch (error) { platformDatabase.exec('ROLLBACK'); throw error; }
+
 export function getStorageQuota(account) {
   const quotaBytes = account.quota_bytes;
   const storageAddonBytes = account.storage_addon_bytes;

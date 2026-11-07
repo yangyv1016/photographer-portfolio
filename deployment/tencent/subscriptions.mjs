@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { getStorageQuota, platformDatabase } from './platform-database.mjs';
 
 const dayMilliseconds = 86400000;
+const storageAddonHashPrefix = 'storage-addon:';
 export const subscriptionPlans = [
   { id: 'monthly', name: '月卡', priceCents: 800, days: 30, quotaBytes: 5 * 1024 ** 3 },
   { id: 'quarterly', name: '季卡', priceCents: 2000, days: 90, quotaBytes: 10 * 1024 ** 3 },
@@ -43,6 +44,19 @@ export function insertSubscriptionCode({ plan, durationDays = plan.days, quotaBy
   return { code, invitationId };
 }
 
+// The distinct hash namespace keeps these codes out of registration, including older releases.
+export function insertStorageAddonCode({ addOnBytes, expiresAt, createdBy, note, now }) {
+  const code = `YY-${randomBytes(18).toString('base64url')}`;
+  const invitationId = randomUUID();
+  const digest = createHash('sha256').update(code).digest('hex');
+  platformDatabase.prepare(`INSERT INTO invitations
+    (id,token_hash,hint,note,quota_bytes,created_by,created_at,expires_at,add_on_bytes)
+    VALUES (?,?,?,?,0,?,?,?,?)`)
+    .run(invitationId, storageAddonHashPrefix + digest, `${code.slice(0, 7)}…${code.slice(-4)}`,
+      note, createdBy, new Date(now).toISOString(), expiresAt, addOnBytes);
+  return { code, invitationId };
+}
+
 export function createSubscriptionCodes({ planId, count, validityDays, durationDays, quotaBytes, createdBy, note }) {
   const preset = subscriptionPlans.find(item => item.id === planId);
   if (!preset) throw new Error('Unknown subscription plan.');
@@ -66,7 +80,7 @@ export function readSubscriptionInvitation(code, now) {
   const digest = createHash('sha256').update(code).digest('hex');
   return platformDatabase.prepare(`SELECT * FROM invitations WHERE token_hash IN (?,?) AND used_at IS NULL AND revoked_at IS NULL
     AND (expires_at IS NULL OR expires_at>?) AND (subscription_plan IS NOT NULL OR grants_permanent=1 OR add_on_bytes>0)`)
-    .get(digest, `storage-addon:${digest}`, now);
+    .get(digest, storageAddonHashPrefix + digest, now);
 }
 
 // Registration and renewal both call this inside their invitation-consumption transaction.

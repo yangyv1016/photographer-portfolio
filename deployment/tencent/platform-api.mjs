@@ -8,7 +8,7 @@ import { env, objectHead } from './storage.mjs';
 import { dataDirectory, storageBackend } from './config.mjs';
 import { verifyPassword, hashPassword, reservedIds } from './auth.mjs';
 import { visitStatistics } from './visit-statistics.mjs';
-import { subscriptionPlans, getSubscription, isSubscriptionExpired, createSubscriptionCodes, readSubscriptionInvitation, applySubscriptionInvitation, calculateSubscriptionExpiry } from './subscriptions.mjs';
+import { subscriptionPlans, getSubscription, isSubscriptionExpired, createSubscriptionCodes, insertStorageAddonCode, readSubscriptionInvitation, applySubscriptionInvitation, calculateSubscriptionExpiry } from './subscriptions.mjs';
 import { DELETE as cancelUpload } from '../../app/api/admin/uploads/route.ts';
 
 export const uploadReservations = new Map();
@@ -399,17 +399,21 @@ export async function platformApi(request, account) {
     }
     if (planId) return Response.json(createSubscriptionCodes({ planId, count, validityDays: days, durationDays, quotaBytes, createdBy: account.id, note }), { status: 201 });
     const now = Date.now();
+    const expiresAt = days ? now + days * 86400000 : null;
     const codes = [];
     platformDatabase.exec('BEGIN IMMEDIATE');
     try {
-      const insert = platformDatabase.prepare('INSERT INTO invitations (id,token_hash,hint,note,quota_bytes,created_by,created_at,expires_at,grants_permanent,add_on_bytes) VALUES (?,?,?,?,?,?,?,?,?,?)');
-      for (let index=0; index<count; index++) {
-        const code = `YY-${randomBytes(18).toString('base64url')}`;
-        const digest = createHash('sha256').update(code).digest('hex');
-        // The separate hash namespace keeps storage add-on codes out of registration, including older releases.
-        const tokenHash = addOnBytes === undefined ? digest : `storage-addon:${digest}`;
-        insert.run(randomUUID(),tokenHash,`${code.slice(0,7)}…${code.slice(-4)}`,note,quotaBytes ?? 0,account.id,new Date(now).toISOString(),days ? now + days * 86400000 : null,Number(permanent),addOnBytes ?? 0);
-        codes.push(code);
+      if (addOnBytes !== undefined) {
+        for (let index = 0; index < count; index++) {
+          codes.push(insertStorageAddonCode({ addOnBytes, expiresAt, createdBy: account.id, note, now }).code);
+        }
+      } else {
+        const insert = platformDatabase.prepare('INSERT INTO invitations (id,token_hash,hint,note,quota_bytes,created_by,created_at,expires_at,grants_permanent) VALUES (?,?,?,?,?,?,?,?,?)');
+        for (let index = 0; index < count; index++) {
+          const code = `YY-${randomBytes(18).toString('base64url')}`;
+          insert.run(randomUUID(),createHash('sha256').update(code).digest('hex'),`${code.slice(0,7)}…${code.slice(-4)}`,note,quotaBytes,account.id,new Date(now).toISOString(),expiresAt,Number(permanent));
+          codes.push(code);
+        }
       }
       platformDatabase.exec('COMMIT');
     } catch (error) { platformDatabase.exec('ROLLBACK'); throw error; }

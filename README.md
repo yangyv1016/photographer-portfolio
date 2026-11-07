@@ -35,6 +35,39 @@ PowerShell 可用 `Copy-Item .env.local.example .env`。选择 COS 时，改用 
 
 [使用指南](docs/USAGE.md) · [订阅与扩容](docs/SUBSCRIPTIONS.md) · [开发指南](docs/DEVELOPMENT.md)
 
+## 启用爱发电自动发货
+
+买家付款后在本站 `/claim` 提交爱发电订单号，网站核验订单，再把兑换码私信发给原购买账号。Webhook 入口仅用于连通测试，提交订单号才会触发发货。
+
+1. 在爱发电开发者后台取得创作者 `user_id` 和 API Token。若方案链接中带 `plan_id`，可从链接复制。也可用已有实付订单的 `query-order` 返回值取得 `plan_id`。用 `query-plan` 核对方案类型、周期或商品价格，扩容商品的规格 ID 取 `data.plan.skus[].sku_id`。[开发者后台](https://ifdian.net/dashboard/dev) · [API 签名和查单](https://guide.afdian.com/creator/developer) · [query-plan 和 send-msg 文档](https://ifdian.net/p/9c65d9cc617011ed81c352540025c377)
+
+2. Ubuntu 生产部署编辑 `/etc/yangyu.env`，本地运行编辑 `deployment/tencent/.env`。填好以下六项基础配置。API Token 和发货密钥只保存在服务端的私密配置中，勿提交到 Git。
+
+   ```dotenv
+   AFDIAN_USER_ID=你的创作者user_id
+   AFDIAN_API_TOKEN=你的API_Token
+   AFDIAN_DELIVERY_KEY=64位十六进制随机密钥
+   AFDIAN_MONTHLY_PLAN_ID=月卡方案plan_id
+   AFDIAN_QUARTERLY_PLAN_ID=季卡方案plan_id
+   AFDIAN_YEARLY_PLAN_ID=年卡方案plan_id
+   ```
+
+   首次配置用 `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"` 生成密钥。更新时保留原密钥，并将它与数据库分别安全备份，以便重试发送已生成的码。
+
+   月卡、季卡、年卡分别对应爱发电 **1／3／12 个月**的独立订阅，每期实付 **¥8／¥20／¥88**，本站每期增加 **30／90／365 天**。
+
+3. 启用扩容发货时，在同一个配置文件追加 `AFDIAN_STORAGE_ADDONS`。每个商品规格填一项，`priceCents` 是每件价格（分），`addOnBytes` 是每件增加的字节数。下例表示每件 ¥25、增加 5 GiB，使用前替换两个 ID。
+
+   ```dotenv
+   AFDIAN_STORAGE_ADDONS='[{"planId":"商品方案ID","skuId":"规格ID","priceCents":2500,"addOnBytes":5368709120}]'
+   ```
+
+4. Ubuntu 运行 `sudo systemctl restart yangyu`，本地停止进程并重新运行 `npm start`。打开你的网站 `/claim` 确认表单可用，也可访问 `/api/integrations/afdian/delivery/status`。`configured: true` 表示基础配置齐全，扩容配置及私信能否送达需用真实付款订单验证。
+
+5. 把 `https://你的域名/claim` 放到爱发电的商品或方案说明、普通自动回复。改用领取链接的方案请关闭随机库存码，避免重复发货。买家取到订阅码后可到 `/register` 注册，已有账号在「订阅与容量」兑换。扩容码在登录后到「订阅与容量」兑换，订阅有效时使用扩容额度。
+
+[发货校验、失败重试和 Webhook 测试说明](docs/SUBSCRIPTIONS.md#固定链接自助发货)
+
 ## 许可证
 
 项目代码采用 MIT 许可证。复制或分发代码时，请保留版权和许可声明。[MIT 许可证](LICENSE)

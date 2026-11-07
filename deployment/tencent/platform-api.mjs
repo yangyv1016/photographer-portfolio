@@ -77,7 +77,7 @@ export async function platformApi(request, account) {
       if (!current) { platformDatabase.exec('ROLLBACK'); return Response.json({ error: '请重新登录。' }, { status: 401 }); }
       const invitation = readSubscriptionInvitation(parsed.data.code, now);
       if (!invitation) { platformDatabase.exec('ROLLBACK'); return Response.json({ error: '订阅兑换码不可用、已使用或已过期。' }, { status: 409 }); }
-      if (calculateSubscriptionExpiry(invitation.duration_days, current.subscription_expires_at, now) === null) {
+      if (invitation.grants_permanent !== 1 && calculateSubscriptionExpiry(invitation.duration_days, current.subscription_expires_at, now) === null) {
         platformDatabase.exec('ROLLBACK');
         return Response.json({ error: '续期后的到期时间超出支持范围，请联系管理员。' }, { status: 409 });
       }
@@ -97,11 +97,12 @@ export async function platformApi(request, account) {
     const invitation = readSubscriptionInvitation(parsed.data.code, now);
     if (!invitation) return Response.json({ error: '订阅兑换码不可用、已使用或已过期。' }, { status: 409 });
     const current = platformDatabase.prepare('SELECT * FROM users WHERE id=?').get(account.id);
-    const plan = subscriptionPlans.find(item => item.id === invitation.subscription_plan);
-    const nextExpiresAt = calculateSubscriptionExpiry(invitation.duration_days, current.subscription_expires_at, now);
-    if (nextExpiresAt === null) return Response.json({ error: '续期后的到期时间超出支持范围，请联系管理员。' }, { status: 409 });
+    const permanent = invitation.grants_permanent === 1;
+    const plan = permanent ? { id: 'permanent', name: '长期有效' } : subscriptionPlans.find(item => item.id === invitation.subscription_plan);
+    const nextExpiresAt = permanent ? null : calculateSubscriptionExpiry(invitation.duration_days, current.subscription_expires_at, now);
+    if (!permanent && nextExpiresAt === null) return Response.json({ error: '续期后的到期时间超出支持范围，请联系管理员。' }, { status: 409 });
     return Response.json({
-      plan: { ...plan, days: invitation.duration_days, quotaBytes: invitation.quota_bytes },
+      plan: { ...plan, days: invitation.duration_days, quotaBytes: invitation.quota_bytes, permanent },
       subscription: getSubscription(current, now), usage: accountUsage(current),
       nextExpiresAt,
     });
@@ -340,28 +341,29 @@ export async function platformApi(request, account) {
     if(!parsed.success)return Response.json({error:'页码无效。'},{status:400});
     const total=platformDatabase.prepare('SELECT COUNT(*) AS count FROM invitations').get().count;
     const page=Math.min(parsed.data,Math.max(1,Math.ceil(total/50)));
-    const rows = platformDatabase.prepare(`SELECT invitations.id,invitations.hint,invitations.note,invitations.quota_bytes AS quotaBytes,invitations.subscription_plan AS planId,invitations.duration_days AS durationDays,invitations.created_at AS createdAt,invitations.expires_at AS expiresAt,invitations.revoked_at AS revokedAt,invitations.used_at AS usedAt,users.login_id AS usedBy
+    const rows = platformDatabase.prepare(`SELECT invitations.id,invitations.hint,invitations.note,invitations.quota_bytes AS quotaBytes,invitations.subscription_plan AS planId,invitations.duration_days AS durationDays,invitations.grants_permanent AS permanent,invitations.created_at AS createdAt,invitations.expires_at AS expiresAt,invitations.revoked_at AS revokedAt,invitations.used_at AS usedAt,users.login_id AS usedBy
       FROM invitations LEFT JOIN users ON users.id=invitations.used_by ORDER BY invitations.created_at DESC,invitations.id LIMIT 50 OFFSET ?`).all((page-1)*50);
-    return Response.json({ invitations: rows, plans: subscriptionPlans, defaultQuotaBytes, page, total });
+    return Response.json({ invitations: rows.map(row => ({ ...row, permanent: row.permanent === 1 })), plans: subscriptionPlans, defaultQuotaBytes, page, total });
   }
   if (path === '/api/platform/invitations' && request.method === 'POST') {
-    const parsed = z.object({ count: z.number().int().min(1).max(50), days: z.number().int().min(0).max(90), quotaBytes: quotaSchema.optional(), durationDays: durationDaysSchema.optional(), note: z.string().trim().max(80), planId: subscriptionPlanSchema.optional() }).safeParse(await request.json());
-    if (!parsed.success || (!parsed.data.planId && (parsed.data.quotaBytes === undefined || parsed.data.durationDays !== undefined))) return Response.json({ error: '请检查数量、兑换期限、订阅天数、套餐和备注；订阅天数必须是可表示的正整数，新账户容量必须大于 0。' }, { status: 400 });
-    const { count, days, quotaBytes, durationDays, note, planId } = parsed.data;
+    const parsed = z.object({ count: z.number().int().min(1).max(50), days: z.number().int().min(0).max(90), quotaBytes: quotaSchema.optional(), durationDays: durationDaysSchema.optional(), note: z.string().trim().max(80), planId: subscriptionPlanSchema.optional(), permanent: z.boolean().default(false) }).safeParse(await request.json());
+    if (!parsed.success || (!parsed.data.planId && (parsed.data.quotaBytes === undefined || parsed.data.durationDays !== undefined))
+      || (parsed.data.permanent && (parsed.data.planId !== undefined || parsed.data.durationDays !== undefined))) return Response.json({ error: '请检查数量、兑换期限、订阅天数、套餐和备注；长期有效码需单独选择并填写正容量，不能同时设置限期套餐或订阅天数。' }, { status: 400 });
+    const { count, days, quotaBytes, durationDays, note, planId, permanent } = parsed.data;
     if (planId) return Response.json(createSubscriptionCodes({ planId, count, validityDays: days, durationDays, quotaBytes, createdBy: account.id, note }), { status: 201 });
     const now = Date.now();
     const codes = [];
     platformDatabase.exec('BEGIN IMMEDIATE');
     try {
-      const insert = platformDatabase.prepare('INSERT INTO invitations (id,token_hash,hint,note,quota_bytes,created_by,created_at,expires_at) VALUES (?,?,?,?,?,?,?,?)');
+      const insert = platformDatabase.prepare('INSERT INTO invitations (id,token_hash,hint,note,quota_bytes,created_by,created_at,expires_at,grants_permanent) VALUES (?,?,?,?,?,?,?,?,?)');
       for (let index=0; index<count; index++) {
         const code = `YY-${randomBytes(18).toString('base64url')}`;
-        insert.run(randomUUID(),createHash('sha256').update(code).digest('hex'),`${code.slice(0,7)}…${code.slice(-4)}`,note,quotaBytes,account.id,new Date(now).toISOString(),days ? now + days * 86400000 : null);
+        insert.run(randomUUID(),createHash('sha256').update(code).digest('hex'),`${code.slice(0,7)}…${code.slice(-4)}`,note,quotaBytes,account.id,new Date(now).toISOString(),days ? now + days * 86400000 : null,Number(permanent));
         codes.push(code);
       }
       platformDatabase.exec('COMMIT');
     } catch (error) { platformDatabase.exec('ROLLBACK'); throw error; }
-    return Response.json({ codes }, { status: 201 });
+    return Response.json(permanent ? { codes, plan: { id: 'permanent', name: '长期有效', days: null, quotaBytes, permanent: true } } : { codes }, { status: 201 });
   }
   if (path === '/api/platform/invitations' && request.method === 'DELETE') {
     const parsed = z.object({ id: z.string().uuid() }).safeParse(await request.json());

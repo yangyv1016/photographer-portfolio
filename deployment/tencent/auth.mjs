@@ -99,7 +99,7 @@ export async function login(request, clientIp, registering = false) {
               .run(publicId, publicId, randomUUID(), savedPassword, displayName.trim(), displayName.trim(), code.quota_bytes, new Date(now).toISOString());
             const account = platformDatabase.prepare('SELECT * FROM users WHERE id=?').get(Number(created.lastInsertRowid));
             createAccountGallery(account.id,account.storage_id);
-            if (code.subscription_plan !== null) applySubscriptionInvitation(account, code, now);
+            if (code.subscription_plan !== null || code.grants_permanent === 1) applySubscriptionInvitation(account, code, now);
             platformDatabase.prepare('UPDATE invitations SET used_at=?,used_by=? WHERE id=? AND used_at IS NULL').run(new Date(now).toISOString(), account.id, code.id);
             platformDatabase.exec('COMMIT');
             attempts.delete(clientIp);

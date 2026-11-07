@@ -173,6 +173,36 @@ try {
   platformDatabase.exec('COMMIT');
 } catch (error) { platformDatabase.exec('ROLLBACK'); throw error; }
 
+platformDatabase.exec('BEGIN IMMEDIATE');
+try {
+  if (!platformDatabase.prepare("SELECT name FROM platform_migrations WHERE name='permanent-subscription-codes'").get()) {
+    platformDatabase.exec(`ALTER TABLE invitations ADD COLUMN grants_permanent INTEGER NOT NULL DEFAULT 0 CHECK (grants_permanent IN (0,1));
+      CREATE TABLE subscription_redemptions_next (
+        invitation_id TEXT PRIMARY KEY REFERENCES invitations(id),
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        plan_id TEXT,
+        duration_days INTEGER,
+        previous_plan TEXT,
+        previous_expires_at INTEGER,
+        expires_at INTEGER,
+        previous_quota_bytes INTEGER NOT NULL,
+        quota_bytes INTEGER NOT NULL,
+        redeemed_at TEXT NOT NULL,
+        CHECK ((plan_id IS NULL AND duration_days IS NULL AND expires_at IS NULL)
+          OR (plan_id IS NOT NULL AND duration_days IS NOT NULL AND expires_at IS NOT NULL AND duration_days > 0))
+      );
+      INSERT INTO subscription_redemptions_next
+        (invitation_id,user_id,plan_id,duration_days,previous_plan,previous_expires_at,expires_at,previous_quota_bytes,quota_bytes,redeemed_at)
+        SELECT invitation_id,user_id,plan_id,duration_days,previous_plan,previous_expires_at,expires_at,previous_quota_bytes,quota_bytes,redeemed_at
+        FROM subscription_redemptions;
+      DROP TABLE subscription_redemptions;
+      ALTER TABLE subscription_redemptions_next RENAME TO subscription_redemptions;
+      CREATE INDEX subscription_redemptions_user ON subscription_redemptions(user_id,redeemed_at);
+      INSERT INTO platform_migrations VALUES ('permanent-subscription-codes');`);
+  }
+  platformDatabase.exec('COMMIT');
+} catch (error) { platformDatabase.exec('ROLLBACK'); throw error; }
+
 export function getPublicAccount(publicId) {
   return platformDatabase.prepare('SELECT * FROM users WHERE (public_id=? OR id=(SELECT user_id FROM public_id_aliases WHERE public_id=?)) AND is_active=1 AND deleted_at IS NULL').get(publicId, publicId);
 }

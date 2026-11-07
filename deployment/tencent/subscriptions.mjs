@@ -46,7 +46,7 @@ export function insertSubscriptionCode({ plan, durationDays = plan.days, quotaBy
 export function createSubscriptionCodes({ planId, count, validityDays, durationDays, quotaBytes, createdBy, note }) {
   const preset = subscriptionPlans.find(item => item.id === planId);
   if (!preset) throw new Error('Unknown subscription plan.');
-  const plan = { ...preset, days: durationDays ?? preset.days, quotaBytes: quotaBytes ?? preset.quotaBytes };
+  const plan = { ...preset, days: durationDays ?? preset.days, quotaBytes: quotaBytes ?? preset.quotaBytes, permanent: false };
   const now = Date.now();
   const codes = [];
   const invitationIds = [];
@@ -64,14 +64,15 @@ export function createSubscriptionCodes({ planId, count, validityDays, durationD
 
 export function readSubscriptionInvitation(code, now) {
   return platformDatabase.prepare(`SELECT * FROM invitations WHERE token_hash=? AND used_at IS NULL AND revoked_at IS NULL
-    AND (expires_at IS NULL OR expires_at>?) AND subscription_plan IS NOT NULL`)
+    AND (expires_at IS NULL OR expires_at>?) AND (subscription_plan IS NOT NULL OR grants_permanent=1)`)
     .get(createHash('sha256').update(code).digest('hex'), now);
 }
 
 // Registration and renewal both call this inside their invitation-consumption transaction.
 export function applySubscriptionInvitation(account, invitation, now) {
-  const expiresAt = calculateSubscriptionExpiry(invitation.duration_days, account.subscription_expires_at, now);
-  if (expiresAt === null) throw new RangeError('Subscription expiry exceeds supported dates.');
+  const permanent = invitation.grants_permanent === 1;
+  const expiresAt = permanent ? null : calculateSubscriptionExpiry(invitation.duration_days, account.subscription_expires_at, now);
+  if (!permanent && expiresAt === null) throw new RangeError('Subscription expiry exceeds supported dates.');
   platformDatabase.prepare(`UPDATE users SET subscription_plan=?,subscription_expires_at=?,quota_bytes=?,subscription_reminded_on=NULL WHERE id=?`)
     .run(invitation.subscription_plan, expiresAt, invitation.quota_bytes, account.id);
   platformDatabase.prepare(`INSERT INTO subscription_redemptions

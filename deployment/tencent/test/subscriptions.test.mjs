@@ -104,6 +104,7 @@ test('Subscription codes activate exact fixed periods, replace quotas and consum
     const preview = await exchange(paidCookie, yearly.codes[0], true);
     assert.equal(preview.status, 200);
     const proposed = await preview.json();
+    assert.equal(proposed.plan.permanent, false);
     assert.equal(proposed.plan.days, 365);
     assert.equal(proposed.plan.quotaBytes, 20 * gib);
     assert.equal(proposed.nextExpiresAt, initialTime + 395 * day);
@@ -135,6 +136,7 @@ test('Subscription codes activate exact fixed periods, replace quotas and consum
     const legacyCookie = await login('legacy-user');
     assert.equal((await subscription(legacyCookie)).subscription.permanent, true);
     assert.equal((await exchange(paidCookie, legacyCodes[1])).status, 409, 'Legacy registration codes cannot renew subscriptions');
+    assert.equal((await exchange(paidCookie, legacyCodes[1], true)).status, 409);
     const quarter = await generate('quarterly');
     const race = await Promise.all([exchange(paidCookie, quarter.codes[0]), exchange(legacyCookie, quarter.codes[0])]);
     assert.deepEqual(race.map(response => response.status).sort(), [200, 409]);
@@ -204,6 +206,7 @@ test('Subscription codes activate exact fixed periods, replace quotas and consum
     const quotaOnly = await generate('quarterly', 1, 0, { quotaBytes: 13 * gib });
     assert.equal(quotaOnly.plan.days, 90); assert.equal(quotaOnly.plan.quotaBytes, 13 * gib);
     const customMonthly = await generate('monthly', 2, 2, { durationDays: 45, quotaBytes: 12 * gib });
+    assert.equal(customMonthly.plan.permanent, false);
     assert.equal(customMonthly.plan.days, 45); assert.equal(customMonthly.plan.quotaBytes, 12 * gib);
     const customList = await (await request('/api/platform/invitations', { headers: headers(adminCookie) })).json();
     const customListing = customList.invitations.find(invitation => invitation.id === customMonthly.invitationIds[0]);
@@ -289,6 +292,123 @@ test('Subscription codes activate exact fixed periods, replace quotas and consum
     assert.deepEqual(catalog.prepare('SELECT * FROM users WHERE id=?').get(administrator.id), beforeAdministrator);
     assert.equal((await configure(adminCookie, { ...permanentConfiguration, id: administrator.id, quotaBytes: 9 * gib })).status, 200);
     assert.deepEqual({ ...catalog.prepare('SELECT * FROM users WHERE id=?').get(administrator.id) }, { ...beforeAdministrator, quota_bytes: 9 * gib });
+
+    const oldRedemptions = catalog.prepare('SELECT * FROM subscription_redemptions ORDER BY invitation_id').all();
+    assert.ok(oldRedemptions.length > 0);
+    assert.ok(oldRedemptions.every(row => row.plan_id !== null && row.duration_days > 0 && row.expires_at !== null));
+    const oldUsers = catalog.prepare('SELECT * FROM users ORDER BY id').all();
+    const oldInvitations = catalog.prepare('SELECT * FROM invitations ORDER BY id').all().map(({ grants_permanent, ...invitation }) => invitation);
+    await stop();
+    catalog.exec(`CREATE TABLE subscription_redemptions_legacy (
+      invitation_id TEXT PRIMARY KEY REFERENCES invitations(id),
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      plan_id TEXT NOT NULL,
+      duration_days INTEGER NOT NULL CHECK (duration_days > 0),
+      previous_plan TEXT,
+      previous_expires_at INTEGER,
+      expires_at INTEGER NOT NULL,
+      previous_quota_bytes INTEGER NOT NULL,
+      quota_bytes INTEGER NOT NULL,
+      redeemed_at TEXT NOT NULL
+    );
+    INSERT INTO subscription_redemptions_legacy SELECT * FROM subscription_redemptions;
+    DROP TABLE subscription_redemptions;
+    ALTER TABLE subscription_redemptions_legacy RENAME TO subscription_redemptions;
+    CREATE INDEX subscription_redemptions_user ON subscription_redemptions(user_id,redeemed_at);
+    ALTER TABLE invitations DROP COLUMN grants_permanent;
+    DELETE FROM platform_migrations WHERE name='permanent-subscription-codes';`);
+    await start();
+    assert.deepEqual(catalog.prepare('SELECT * FROM subscription_redemptions ORDER BY invitation_id').all(), oldRedemptions);
+    assert.deepEqual(catalog.prepare('SELECT * FROM users ORDER BY id').all(), oldUsers);
+    assert.deepEqual(catalog.prepare('SELECT * FROM invitations ORDER BY id').all().map(({ grants_permanent, ...invitation }) => invitation), oldInvitations);
+    assert.ok(catalog.prepare('SELECT grants_permanent FROM invitations').all().every(row => row.grants_permanent === 0));
+    assert.equal(catalog.prepare("SELECT COUNT(*) AS count FROM platform_migrations WHERE name='permanent-subscription-codes'").get().count, 1);
+    assert.ok(catalog.prepare("PRAGMA index_list('subscription_redemptions')").all().some(index => index.name === 'subscription_redemptions_user'));
+    assert.deepEqual(catalog.prepare('PRAGMA foreign_key_check').all(), []);
+    const insertMixedRedemption = catalog.prepare(`INSERT INTO subscription_redemptions
+      (invitation_id,user_id,plan_id,duration_days,expires_at,previous_quota_bytes,quota_bytes,redeemed_at)
+      VALUES (?,?,?,?,?,?,?,?)`);
+    for (const [planId, durationDays, expiresAt] of [[null, 30, customTime + 30 * day], ['monthly', null, customTime + 30 * day], ['monthly', 30, null]]) {
+      assert.throws(() => insertMixedRedemption.run(customMonthly.invitationIds[1], customAccount.id, planId, durationDays, expiresAt, gib, gib, new Date(customTime).toISOString()), /CHECK/);
+    }
+    const permanentCount = catalog.prepare('SELECT COUNT(*) AS count FROM invitations').get().count;
+    for (const invalid of [
+      { permanent: 'true' }, { permanent: 1 }, { permanent: null }, { planId: 'monthly' }, { durationDays: 30 },
+      { quotaBytes: undefined }, { quotaBytes: 0 }, { quotaBytes: -1 }, { quotaBytes: 1.5 },
+    ]) assert.equal((await request('/api/platform/invitations', {
+      method: 'POST', headers: headers(adminCookie),
+      body: JSON.stringify({ count: 5, days: 2, permanent: true, quotaBytes: 19 * gib, note: 'Permanent subscription', ...invalid }),
+    })).status, 400);
+    assert.equal(catalog.prepare('SELECT COUNT(*) AS count FROM invitations').get().count, permanentCount);
+    const permanentResponse = await request('/api/platform/invitations', {
+      method: 'POST', headers: headers(adminCookie),
+      body: JSON.stringify({ count: 5, days: 2, permanent: true, quotaBytes: 19 * gib, note: 'Permanent subscription' }),
+    });
+    assert.equal(permanentResponse.status, 201);
+    const permanentCodes = await permanentResponse.json();
+    assert.deepEqual(permanentCodes.plan, { id: 'permanent', name: '长期有效', days: null, quotaBytes: 19 * gib, permanent: true });
+    const permanentInvitations = permanentCodes.codes.map(code => catalog.prepare('SELECT * FROM invitations WHERE token_hash=?').get(createHash('sha256').update(code).digest('hex')));
+    assert.equal(permanentInvitations.length, 5);
+    for (const invitation of permanentInvitations) {
+      assert.equal(invitation.grants_permanent, 1); assert.equal(invitation.subscription_plan, null); assert.equal(invitation.duration_days, null);
+      assert.equal(invitation.expires_at, customTime + 2 * day);
+    }
+    const permanentList = await (await request('/api/platform/invitations', { headers: headers(adminCookie) })).json();
+    assert.deepEqual(permanentList.plans, catalogPlans);
+    assert.ok(permanentList.invitations.every(invitation => typeof invitation.permanent === 'boolean'));
+    assert.equal(permanentList.invitations.find(invitation => invitation.id === permanentInvitations[0].id).permanent, true);
+    assert.equal(permanentList.invitations.find(invitation => invitation.id === customMonthly.invitationIds[0]).permanent, false);
+    assert.equal((await register('permanent-user', permanentCodes.codes[0])).status, 303);
+    const permanentCookie = await login('permanent-user');
+    const permanentSubscription = await subscription(permanentCookie);
+    assert.equal(permanentSubscription.subscription.permanent, true); assert.equal(permanentSubscription.subscription.expiresAt, null);
+    assert.equal(permanentSubscription.subscription.planId, null); assert.equal(permanentSubscription.subscription.quotaBytes, 19 * gib);
+    const registrationLedger = catalog.prepare('SELECT * FROM subscription_redemptions WHERE invitation_id=?').get(permanentInvitations[0].id);
+    assert.equal(registrationLedger.plan_id, null); assert.equal(registrationLedger.duration_days, null); assert.equal(registrationLedger.expires_at, null);
+    assert.equal(registrationLedger.quota_bytes, 19 * gib);
+    assert.equal((await exchange(customCookie, permanentCodes.codes[0])).status, 409);
+    assert.equal((await register('used-permanent', permanentCodes.codes[0])).status, 400);
+    assert.equal((await configure(adminCookie, configuration)).status, 200);
+    const beforePermanent = catalog.prepare('SELECT * FROM users WHERE id=?').get(customAccount.id);
+    const permanentPreview = await exchange(customCookie, permanentCodes.codes[1], true);
+    assert.equal(permanentPreview.status, 200);
+    const permanentProposal = await permanentPreview.json();
+    assert.deepEqual(permanentProposal.plan, permanentCodes.plan); assert.equal(permanentProposal.nextExpiresAt, null);
+    assert.deepEqual(catalog.prepare('SELECT * FROM users WHERE id=?').get(customAccount.id), beforePermanent);
+    assert.equal(catalog.prepare('SELECT used_at FROM invitations WHERE id=?').get(permanentInvitations[1].id).used_at, null);
+    assert.equal((await exchange(customCookie, permanentCodes.codes[1])).status, 200);
+    assert.deepEqual({ ...catalog.prepare('SELECT * FROM users WHERE id=?').get(customAccount.id) }, {
+      ...beforePermanent, subscription_plan: null, subscription_expires_at: null, quota_bytes: 19 * gib, subscription_reminded_on: null,
+    });
+    const exchangeLedger = catalog.prepare('SELECT * FROM subscription_redemptions WHERE invitation_id=?').get(permanentInvitations[1].id);
+    assert.equal(exchangeLedger.plan_id, null); assert.equal(exchangeLedger.duration_days, null); assert.equal(exchangeLedger.expires_at, null);
+    assert.equal(exchangeLedger.previous_plan, beforePermanent.subscription_plan);
+    assert.equal(exchangeLedger.previous_expires_at, beforePermanent.subscription_expires_at);
+    assert.deepEqual(catalog.prepare('SELECT * FROM sessions WHERE user_id=? ORDER BY token_hash').all(customAccount.id), beforeSessions);
+    assert.equal((await stat(customGalleryPath)).ino, beforeGallery.ino);
+    assert.equal((await exchange(customCookie, permanentCodes.codes[1])).status, 409);
+    assert.equal((await register('exchanged-permanent', permanentCodes.codes[1])).status, 400);
+    const permanentRace = await Promise.all([register('permanent-race', permanentCodes.codes[2]), exchange(customCookie, permanentCodes.codes[2])]);
+    assert.equal(permanentRace.filter(response => [200, 303].includes(response.status)).length, 1);
+    assert.equal(permanentRace.filter(response => [400, 409].includes(response.status)).length, 1);
+    assert.equal(catalog.prepare('SELECT COUNT(*) AS count FROM subscription_redemptions WHERE invitation_id=?').get(permanentInvitations[2].id).count, 1);
+    assert.equal((await request('/api/platform/invitations', { method: 'DELETE', headers: headers(adminCookie), body: JSON.stringify({ id: permanentInvitations[3].id }) })).status, 200);
+    catalog.prepare('UPDATE invitations SET expires_at=? WHERE id=?').run(customTime, permanentInvitations[4].id);
+    for (const index of [3, 4]) {
+      assert.equal((await exchange(customCookie, permanentCodes.codes[index], true)).status, 409);
+      assert.equal((await exchange(customCookie, permanentCodes.codes[index])).status, 409);
+      assert.equal((await register('unavailable-permanent-' + index, permanentCodes.codes[index])).status, 400);
+      assert.equal(catalog.prepare('SELECT COUNT(*) AS count FROM subscription_redemptions WHERE invitation_id=?').get(permanentInvitations[index].id).count, 0);
+    }
+    assert.equal((await exchange(customCookie, legacyCodes[1], true)).status, 409);
+    assert.equal((await exchange(customCookie, legacyCodes[1])).status, 409);
+    const redemptionsBeforeRestart = catalog.prepare('SELECT * FROM subscription_redemptions ORDER BY invitation_id').all();
+    await stop(); await start();
+    assert.deepEqual(catalog.prepare('SELECT * FROM subscription_redemptions ORDER BY invitation_id').all(), redemptionsBeforeRestart);
+    assert.equal(catalog.prepare("SELECT COUNT(*) AS count FROM platform_migrations WHERE name='permanent-subscription-codes'").get().count, 1);
+    assert.deepEqual(catalog.prepare('PRAGMA foreign_key_check').all(), []);
+    assert.equal(catalog.prepare('SELECT grants_permanent FROM invitations WHERE id=?').get(permanentInvitations[0].id).grants_permanent, 1);
+    assert.equal((await subscription(permanentCookie)).subscription.expiresAt, null);
   } finally {
     gallery?.close(); catalog?.close(); await stop();
     assert.ok(data.startsWith(resolve(tmpdir()) + sep + 'yangyu-subscriptions-test-'));

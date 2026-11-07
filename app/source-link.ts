@@ -1,0 +1,1 @@
+export const sourceLinkHtml = `<a class="source-link" href="https://github.com/yangyv1016/photographer-portfolio" aria-label="在 GitHub 查看项目源码（yangyv1016）" title="项目源码 · yangyv1016"><img src="/github-mark.svg" alt="" width="20" height="20"></a>`;

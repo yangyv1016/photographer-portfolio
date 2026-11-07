@@ -1,4 +1,5 @@
 import { albumHtml } from "./album-html";
+import { sourceLinkHtml } from "./source-link";
 import { getGalleryPhotos } from "../db/gallery";
 import { getSeries } from "../db/series";
 import type { PortfolioProfile } from "./route";
@@ -39,6 +40,7 @@ export async function renderAlbum(
     .replace("<!--album-navigation-->", navigation)
     .replace("<!--album-controls-->", controls)
     .replace("<!--album-move-controls-->", moveControls)
+    .replace("<!--album-footer-->", workspace ? "" : `<footer class="album-source-footer">${sourceLinkHtml}</footer>`)
     .replace("</head>", `<script id="album-data" type="application/json">${data}</script></head>`);
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "private, no-store" } });
 }

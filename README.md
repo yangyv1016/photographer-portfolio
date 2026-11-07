@@ -37,4 +37,6 @@ PowerShell 可用 `Copy-Item .env.local.example .env`。选择 COS 时，改用 
 
 ## 许可证
 
-项目代码采用 [MIT 许可证](LICENSE)。样例照片与第三方组件的许可见 [第三方内容说明](THIRD_PARTY_NOTICES.md)。
+项目代码采用 MIT 许可证。复制或分发代码时，请保留版权和许可声明。[MIT 许可证](LICENSE)
+
+样例照片和第三方组件各自适用原许可。[第三方内容说明](THIRD_PARTY_NOTICES.md)

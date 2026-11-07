@@ -21,6 +21,7 @@
 
 ## 随源码分发的软件
 
+- `public/github-mark.svg` 来自 GitHub Primer Octicons，MIT 许可和版权声明保存在 SVG 文件中。[原始图标](https://github.com/primer/octicons/blob/main/icons/mark-github-16.svg)
 - `build/sites-vite-plugin.ts`：原 MIT 许可及 OpenAI 版权声明保存在同目录的 `sites-vite-plugin.LICENSE`。
 - `vendor/shadcn-tailwind-4.13.0.css`：原 MIT 许可及 shadcn 版权声明保存在同目录的 `shadcn-tailwind-4.13.0.LICENSE.md`。
 - Node.js 自部署版会从锁定的 npm 依赖构建 Markdown bundle，并生成完整的 `app/public/vendor/note-markdown-vendor.LICENSE.txt`。

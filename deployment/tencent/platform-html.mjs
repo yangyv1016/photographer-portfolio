@@ -1,6 +1,6 @@
 import { adminHtml } from '../../app/admin-html.ts';
 
-const platformAssetsVersion = '20261107-permanent-invitations';
+const platformAssetsVersion = '20261107-storage-addons';
 
 export function escapeHtml(value) {
   return String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
@@ -44,7 +44,7 @@ export function workspacePage(account, active) {
     overview: ['平台概览','账户、资源与运行状态'],
     accounts: ['账户管理','管理摄影师账户与存储配额'],
     invitations: ['兑换码','生成注册与订阅续期共用的一次性兑换码'],
-    subscription: ['订阅与容量','查看订阅期限、存储容量并兑换续期']
+    subscription: ['订阅与容量','查看订阅、管理存储并兑换订阅码或扩容码']
   };
   const [title, description] = headings[active];
   const adminVisits = active === 'visits' && account.role === 'admin' ? ' data-visits-admin' : '';

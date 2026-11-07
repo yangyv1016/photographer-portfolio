@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { platformDatabase } from './platform-database.mjs';
+import { getStorageQuota, platformDatabase } from './platform-database.mjs';
 
 const dayMilliseconds = 86400000;
 export const subscriptionPlans = [
@@ -21,7 +21,7 @@ export function getSubscription(account, now = Date.now()) {
     expiresAt: permanent ? null : account.subscription_expires_at,
     expired: isSubscriptionExpired(account, now), permanent,
     daysRemaining: permanent ? null : Math.max(0, Math.ceil((account.subscription_expires_at - now) / dayMilliseconds)),
-    quotaBytes: account.quota_bytes,
+    ...getStorageQuota(account),
   };
 }
 
@@ -63,9 +63,10 @@ export function createSubscriptionCodes({ planId, count, validityDays, durationD
 }
 
 export function readSubscriptionInvitation(code, now) {
-  return platformDatabase.prepare(`SELECT * FROM invitations WHERE token_hash=? AND used_at IS NULL AND revoked_at IS NULL
-    AND (expires_at IS NULL OR expires_at>?) AND (subscription_plan IS NOT NULL OR grants_permanent=1)`)
-    .get(createHash('sha256').update(code).digest('hex'), now);
+  const digest = createHash('sha256').update(code).digest('hex');
+  return platformDatabase.prepare(`SELECT * FROM invitations WHERE token_hash IN (?,?) AND used_at IS NULL AND revoked_at IS NULL
+    AND (expires_at IS NULL OR expires_at>?) AND (subscription_plan IS NOT NULL OR grants_permanent=1 OR add_on_bytes>0)`)
+    .get(digest, `storage-addon:${digest}`, now);
 }
 
 // Registration and renewal both call this inside their invitation-consumption transaction.

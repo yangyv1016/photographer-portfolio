@@ -203,6 +203,24 @@ try {
   platformDatabase.exec('COMMIT');
 } catch (error) { platformDatabase.exec('ROLLBACK'); throw error; }
 
+platformDatabase.exec('BEGIN IMMEDIATE');
+try {
+  if (!platformDatabase.prepare("SELECT name FROM platform_migrations WHERE name='storage-addon-codes'").get()) {
+    platformDatabase.exec(`ALTER TABLE users ADD COLUMN storage_addon_bytes INTEGER NOT NULL DEFAULT 0
+        CHECK (storage_addon_bytes BETWEEN 0 AND ${Number.MAX_SAFE_INTEGER} - quota_bytes);
+      ALTER TABLE invitations ADD COLUMN add_on_bytes INTEGER NOT NULL DEFAULT 0
+        CHECK (add_on_bytes BETWEEN 0 AND ${Number.MAX_SAFE_INTEGER});
+      INSERT INTO platform_migrations VALUES ('storage-addon-codes');`);
+  }
+  platformDatabase.exec('COMMIT');
+} catch (error) { platformDatabase.exec('ROLLBACK'); throw error; }
+
+export function getStorageQuota(account) {
+  const quotaBytes = account.quota_bytes;
+  const storageAddonBytes = account.storage_addon_bytes;
+  return { quotaBytes, storageAddonBytes, totalQuotaBytes: quotaBytes + storageAddonBytes };
+}
+
 export function getPublicAccount(publicId) {
   return platformDatabase.prepare('SELECT * FROM users WHERE (public_id=? OR id=(SELECT user_id FROM public_id_aliases WHERE public_id=?)) AND is_active=1 AND deleted_at IS NULL').get(publicId, publicId);
 }
@@ -213,7 +231,7 @@ export function publicAccount(account) {
     displayName: account.display_name, siteName: account.site_name, bio: account.bio, introduction: account.introduction, region: account.region, role: account.role,
     active: account.is_active === 1, listed: account.listed === 1,
     subscriptionPlan: account.subscription_plan, subscriptionExpiresAt: account.subscription_expires_at,
-    quotaBytes: account.quota_bytes, avatarUrl: account.avatar_key ? `/api/avatars/${account.public_id}` : '',
+    ...getStorageQuota(account), avatarUrl: account.avatar_key ? `/api/avatars/${account.public_id}` : '',
     coverUrl: account.cover_key ? `/api/covers/${account.public_id}` : '',
     directoryCoverUrl: account.directory_cover_key ? `/api/directory-covers/${account.public_id}` : '',
     showPhotoNames: account.show_photo_names === 1,

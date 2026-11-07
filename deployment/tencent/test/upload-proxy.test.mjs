@@ -91,6 +91,33 @@ globalThis.fetch=async()=>{throw new Error('Unexpected network request in COS st
     assert.equal(gallery.prepare('SELECT COUNT(*) AS count FROM photo_uploads WHERE id=?').get(task.id).count,1);
     assert.equal(gallery.prepare('SELECT COUNT(*) AS count FROM photos').get().count,0);
     assert.equal((await request('/api/session',{headers:{Cookie:otherCookie}})).status,200);
+
+    const otherHeaders={...headers,Cookie:otherCookie};
+    const additionalImage=Buffer.alloc(10001,123);additionalImage.set([255,216,255]);
+    const startExpanded=()=>request('/api/admin/uploads',{
+      method:'POST',headers:otherHeaders,
+      body:JSON.stringify({series:'scene',title:'Expanded upload',contentType:'image/jpeg',size:additionalImage.length}),
+    });
+    assert.equal((await startExpanded()).status,413);
+    const expansion=await request('/api/platform/invitations',{
+      method:'POST',headers,body:JSON.stringify({count:1,days:7,addOnBytes:1,note:'Upload expansion'}),
+    });
+    assert.equal(expansion.status,201);
+    const expansionCode=(await expansion.json()).codes[0];
+    const redeemed=await request('/api/profile/subscription',{
+      method:'POST',headers:otherHeaders,body:JSON.stringify({code:expansionCode}),
+    });
+    assert.equal(redeemed.status,200);
+    const expandedUpload=await startExpanded();
+    assert.equal(expandedUpload.status,201);
+    const expandedTask=await expandedUpload.json();
+    assert.equal((await request(`/api/admin/upload-part?id=${expandedTask.id}&part=1`,{
+      method:'PUT',headers:{...partHeaders,Cookie:otherCookie},body:additionalImage,
+    })).status,200);
+    const expandedSession=await (await request('/api/session',{headers:otherHeaders})).json();
+    assert.equal(expandedSession.account.quotaBytes,10000);assert.equal(expandedSession.account.storageAddonBytes,1);
+    assert.equal(expandedSession.account.totalQuotaBytes,10001);
+    assert.equal(expandedSession.usage.pendingBytes,10001);assert.equal(expandedSession.usage.availableBytes,0);
   }finally{
     gallery?.close();catalog?.close();
     if(server&&server.exitCode===null&&server.signalCode===null){server.kill();await once(server,'exit');}

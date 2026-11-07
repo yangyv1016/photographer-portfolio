@@ -316,7 +316,9 @@ test('Subscription codes activate exact fixed periods, replace quotas and consum
     ALTER TABLE subscription_redemptions_legacy RENAME TO subscription_redemptions;
     CREATE INDEX subscription_redemptions_user ON subscription_redemptions(user_id,redeemed_at);
     ALTER TABLE invitations DROP COLUMN grants_permanent;
-    DELETE FROM platform_migrations WHERE name='permanent-subscription-codes';`);
+    ALTER TABLE invitations DROP COLUMN add_on_bytes;
+    ALTER TABLE users DROP COLUMN storage_addon_bytes;
+    DELETE FROM platform_migrations WHERE name IN ('permanent-subscription-codes','storage-addon-codes');`);
     await start();
     assert.deepEqual(catalog.prepare('SELECT * FROM subscription_redemptions ORDER BY invitation_id').all(), oldRedemptions);
     assert.deepEqual(catalog.prepare('SELECT * FROM users ORDER BY id').all(), oldUsers);
@@ -402,13 +404,120 @@ test('Subscription codes activate exact fixed periods, replace quotas and consum
     }
     assert.equal((await exchange(customCookie, legacyCodes[1], true)).status, 409);
     assert.equal((await exchange(customCookie, legacyCodes[1])).status, 409);
+
+    const issueAddon = fields => request('/api/platform/invitations', {
+      method: 'POST', headers: headers(adminCookie),
+      body: JSON.stringify({ count: 1, days: 2, addOnBytes: 3 * gib, note: 'Storage expansion', ...fields }),
+    });
+    const beforeAddonCount = catalog.prepare('SELECT COUNT(*) AS count FROM invitations').get().count;
+    for (const invalid of [
+      { addOnBytes: 0 }, { addOnBytes: -1 }, { addOnBytes: 1.5 }, { addOnBytes: '1' }, { addOnBytes: Number.MAX_SAFE_INTEGER + 1 },
+      { quotaBytes: gib }, { planId: 'monthly' }, { permanent: true }, { durationDays: 30 },
+    ]) assert.equal((await issueAddon(invalid)).status, 400);
+    assert.equal(catalog.prepare('SELECT COUNT(*) AS count FROM invitations').get().count, beforeAddonCount);
+    const addonResponse = await issueAddon({ count: 4 });
+    assert.equal(addonResponse.status, 201);
+    const addon = await addonResponse.json();
+    assert.equal(addon.addOnBytes, 3 * gib); assert.equal(addon.codes.length, 4);
+    const addonRows = addon.codes.map(code => {
+      const digest = createHash('sha256').update(code).digest('hex');
+      assert.equal(catalog.prepare('SELECT id FROM invitations WHERE token_hash=?').get(digest), undefined);
+      return catalog.prepare('SELECT * FROM invitations WHERE token_hash=?').get('storage-addon:' + digest);
+    });
+    for (const row of addonRows) {
+      assert.equal(row.add_on_bytes, 3 * gib); assert.equal(row.quota_bytes, 0); assert.equal(row.expires_at, customTime + 2 * day);
+      assert.equal(row.subscription_plan, null); assert.equal(row.grants_permanent, 0);
+    }
+    const addonList = await (await request('/api/platform/invitations', { headers: headers(adminCookie) })).json();
+    assert.equal(addonList.invitations.find(item => item.id === addonRows[0].id).addOnBytes, 3 * gib);
+    assert.equal(addonList.invitations.find(item => item.id === customMonthly.invitationIds[0]).addOnBytes, 0);
+    assert.deepEqual(addonList.plans, catalogPlans);
+    assert.equal((await register('addon-registration', addon.codes[0])).status, 400);
+    assert.equal((await request('/api/profile/subscription', {
+      method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ code: addon.codes[0] }),
+    })).status, 401);
+    assert.equal(catalog.prepare('SELECT used_at FROM invitations WHERE id=?').get(addonRows[0].id).used_at, null);
+    assert.equal((await configure(adminCookie, { ...configuration, subscriptionExpiresAt: customTime - 1 })).status, 200);
+    catalog.prepare('UPDATE users SET subscription_reminded_on=? WHERE id=?').run('2026-11-15', customAccount.id);
+    const beforeAddon = catalog.prepare('SELECT * FROM users WHERE id=?').get(customAccount.id);
+    const addonPreview = await exchange(customCookie, addon.codes[0], true);
+    assert.equal(addonPreview.status, 200);
+    const addonProposal = await addonPreview.json();
+    assert.deepEqual(addonProposal.storageAddon, { addedBytes: 3 * gib, nextStorageAddonBytes: 3 * gib });
+    assert.equal(addonProposal.nextTotalQuotaBytes, 18 * gib); assert.equal(addonProposal.usage.availableBytes, 0);
+    assert.equal(catalog.prepare('SELECT used_at FROM invitations WHERE id=?').get(addonRows[0].id).used_at, null);
+    const redeemedAddon = await exchange(customCookie, addon.codes[0]);
+    assert.equal(redeemedAddon.status, 200);
+    const expiredAddon = await redeemedAddon.json();
+    assert.equal(expiredAddon.subscription.quotaBytes, 15 * gib); assert.equal(expiredAddon.subscription.storageAddonBytes, 3 * gib);
+    assert.equal(expiredAddon.subscription.totalQuotaBytes, 18 * gib); assert.equal(expiredAddon.subscription.expired, true);
+    assert.equal(expiredAddon.usage.availableBytes, 0); assert.equal(expiredAddon.usage.subscriptionExpired, true);
+    assert.deepEqual({ ...catalog.prepare('SELECT * FROM users WHERE id=?').get(customAccount.id) }, { ...beforeAddon, storage_addon_bytes: 3 * gib });
+    assert.equal(catalog.prepare('SELECT used_by FROM invitations WHERE id=?').get(addonRows[0].id).used_by, customAccount.id);
+    assert.equal(catalog.prepare('SELECT COUNT(*) AS count FROM subscription_redemptions WHERE invitation_id=?').get(addonRows[0].id).count, 0);
+    assert.equal((await request('/custom-user')).status, 403);
+    assert.equal((await request('/api/admin/uploads', { method: 'POST', headers: headers(customCookie), body: JSON.stringify({ size: 1 }) })).status, 403);
+    const renewedPreview = await exchange(customCookie, customMonthly.codes[1], true);
+    assert.equal(renewedPreview.status, 200); assert.equal((await renewedPreview.json()).nextTotalQuotaBytes, 15 * gib);
+    assert.equal((await exchange(customCookie, customMonthly.codes[1])).status, 200);
+    const resumed = await subscription(customCookie);
+    assert.equal(resumed.subscription.storageAddonBytes, 3 * gib); assert.equal(resumed.subscription.totalQuotaBytes, 15 * gib);
+    assert.equal(resumed.usage.availableBytes, 15 * gib); assert.equal(resumed.usage.subscriptionExpired, false);
+    assert.equal((await request('/custom-user')).status, 200);
+    const addonRace = await Promise.all([exchange(customCookie, addon.codes[1]), exchange(customCookie, addon.codes[1])]);
+    assert.deepEqual(addonRace.map(response => response.status).sort(), [200, 409]);
+    assert.equal((await subscription(customCookie)).subscription.storageAddonBytes, 6 * gib);
+    assert.equal((await request('/api/platform/invitations', { method: 'DELETE', headers: headers(adminCookie), body: JSON.stringify({ id: addonRows[2].id }) })).status, 200);
+    catalog.prepare('UPDATE invitations SET expires_at=? WHERE id=?').run(customTime, addonRows[3].id);
+    for (const index of [2, 3]) {
+      assert.equal((await exchange(customCookie, addon.codes[index], true)).status, 409);
+      assert.equal((await exchange(customCookie, addon.codes[index])).status, 409);
+      assert.equal(catalog.prepare('SELECT used_at FROM invitations WHERE id=?').get(addonRows[index].id).used_at, null);
+    }
+    const newQuarter = await generate('quarterly');
+    assert.equal((await exchange(customCookie, newQuarter.codes[0])).status, 200);
+    assert.equal((await subscription(customCookie)).subscription.totalQuotaBytes, 16 * gib);
+    const permanentWithAddon = await request('/api/platform/invitations', {
+      method: 'POST', headers: headers(adminCookie),
+      body: JSON.stringify({ count: 1, days: 0, permanent: true, quotaBytes: 20 * gib, note: 'Preserve storage expansion' }),
+    });
+    assert.equal(permanentWithAddon.status, 201);
+    const permanentWithAddonCode = (await permanentWithAddon.json()).codes[0];
+    const permanentWithAddonPreview = await exchange(customCookie, permanentWithAddonCode, true);
+    assert.equal(permanentWithAddonPreview.status, 200); assert.equal((await permanentWithAddonPreview.json()).nextTotalQuotaBytes, 26 * gib);
+    assert.equal((await exchange(customCookie, permanentWithAddonCode)).status, 200);
+    const permanentWithAddonResult = await subscription(customCookie);
+    assert.equal(permanentWithAddonResult.subscription.permanent, true);
+    assert.equal(permanentWithAddonResult.subscription.storageAddonBytes, 6 * gib);
+    assert.equal(permanentWithAddonResult.usage.availableBytes, 26 * gib);
+    const largestBase = Number.MAX_SAFE_INTEGER - 6 * gib;
+    const quotaAction = { id: customAccount.id, action: 'quota', quotaBytes: largestBase };
+    assert.equal((await configure(adminCookie, quotaAction)).status, 200);
+    assert.equal((await configure(adminCookie, { ...quotaAction, quotaBytes: largestBase + 1 })).status, 409);
+    assert.equal((await configure(adminCookie, { ...configuration, quotaBytes: largestBase + 1 })).status, 409);
+    assert.throws(() => catalog.prepare('UPDATE users SET quota_bytes=? WHERE id=?').run(largestBase + 1, customAccount.id), /CHECK/);
+    const tinyAddonResponse = await issueAddon({ addOnBytes: 1 });
+    assert.equal(tinyAddonResponse.status, 201);
+    const tinyAddon = (await tinyAddonResponse.json()).codes[0];
+    assert.equal((await exchange(customCookie, tinyAddon, true)).status, 409);
+    assert.equal((await exchange(customCookie, tinyAddon)).status, 409);
+    const oversizedBase = await generate('monthly', 1, 0, { quotaBytes: Number.MAX_SAFE_INTEGER });
+    assert.equal((await exchange(customCookie, oversizedBase.codes[0], true)).status, 409);
+    assert.equal((await exchange(customCookie, oversizedBase.codes[0])).status, 409);
+    assert.equal(catalog.prepare('SELECT used_at FROM invitations WHERE id=?').get(oversizedBase.invitationIds[0]).used_at, null);
+    assert.equal((await configure(adminCookie, { ...configuration, quotaBytes: largestBase - 1 })).status, 200);
+    assert.equal((await exchange(customCookie, tinyAddon)).status, 200, 'A capacity overflow must leave the code available for retry');
+    assert.equal((await subscription(customCookie)).subscription.totalQuotaBytes, Number.MAX_SAFE_INTEGER);
+
     const redemptionsBeforeRestart = catalog.prepare('SELECT * FROM subscription_redemptions ORDER BY invitation_id').all();
     await stop(); await start();
     assert.deepEqual(catalog.prepare('SELECT * FROM subscription_redemptions ORDER BY invitation_id').all(), redemptionsBeforeRestart);
     assert.equal(catalog.prepare("SELECT COUNT(*) AS count FROM platform_migrations WHERE name='permanent-subscription-codes'").get().count, 1);
+    assert.equal(catalog.prepare("SELECT COUNT(*) AS count FROM platform_migrations WHERE name='storage-addon-codes'").get().count, 1);
     assert.deepEqual(catalog.prepare('PRAGMA foreign_key_check').all(), []);
     assert.equal(catalog.prepare('SELECT grants_permanent FROM invitations WHERE id=?').get(permanentInvitations[0].id).grants_permanent, 1);
     assert.equal((await subscription(permanentCookie)).subscription.expiresAt, null);
+    assert.equal((await subscription(customCookie)).subscription.storageAddonBytes, 6 * gib + 1);
   } finally {
     gallery?.close(); catalog?.close(); await stop();
     assert.ok(data.startsWith(resolve(tmpdir()) + sep + 'yangyu-subscriptions-test-'));
